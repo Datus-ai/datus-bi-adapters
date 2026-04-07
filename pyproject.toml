@@ -1,0 +1,22 @@
+[project]
+name = "datus-bi-adapters"
+version = "0.1.0"
+description = "Datus BI adapters workspace (development only)"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+
+[tool.uv.workspace]
+members = ["datus-bi-core", "datus-bi-superset", "datus-bi-grafana"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: integration tests requiring live Superset/Grafana (deselect with '-m not integration')",
+]

@@ -1,0 +1,52 @@
+# Test environment for datus-bi-grafana integration tests
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f grafana   # wait for "HTTP Server Listen"
+#   docker compose down -v
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: datus_grafana_postgres
+    environment:
+      POSTGRES_DB: grafana_data      # business data DB
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: grafana
+      # also create grafana_meta DB for Grafana internal metadata
+      POSTGRES_MULTIPLE_DATABASES: grafana_meta
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grafana"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: datus_test_grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Use postgres as Grafana's backend metadata store
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana_meta
+      GF_DATABASE_USER: grafana
+      GF_DATABASE_PASSWORD: grafana
+      GF_DATABASE_SSL_MODE: disable
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
