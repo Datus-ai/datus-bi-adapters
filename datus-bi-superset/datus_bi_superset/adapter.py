@@ -13,7 +13,7 @@ import httpx
 import sqlglot
 
 from datus_bi_core import (
-    BIAdaptorBase,
+    BIAdapterBase,
     ChartWriteMixin,
     DashboardWriteMixin,
     DatasetWriteMixin,
@@ -111,8 +111,8 @@ def _extract_table_names(
     return table_names
 
 
-class SupersetAdaptorError(RuntimeError):
-    """Errors raised by the Superset adaptor."""
+class SupersetAdapterError(RuntimeError):
+    """Errors raised by the Superset adapter."""
 
 
 _CHART_TYPE_MAP = {
@@ -125,14 +125,14 @@ _CHART_TYPE_MAP = {
 }
 
 
-class SupersetAdaptor(
-    BIAdaptorBase,
+class SupersetAdapter(
+    BIAdapterBase,
     ListDashboardsMixin,
     DashboardWriteMixin,
     ChartWriteMixin,
     DatasetWriteMixin,
 ):
-    """Adaptor that extracts chart SQL and metadata from Superset."""
+    """Adapter that extracts chart SQL and metadata from Superset."""
 
     def __init__(
         self,
@@ -206,7 +206,7 @@ class SupersetAdaptor(
         dashboard_id = self.parse_dashboard_id(dashboard_url)
         dashboard_info = self.get_dashboard_info(dashboard_id)
         if dashboard_info is None:
-            raise SupersetAdaptorError(f"Dashboard {dashboard_id} not found")
+            raise SupersetAdapterError(f"Dashboard {dashboard_id} not found")
         return dashboard_info
 
     def get_dashboard_info(
@@ -214,7 +214,7 @@ class SupersetAdaptor(
     ) -> Optional[DashboardInfo]:
         try:
             dashboard = self._get_dashboard(dashboard_id)
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(f"Failed to fetch dashboard {dashboard_id}: {exc}")
             raise exc
 
@@ -235,7 +235,7 @@ class SupersetAdaptor(
                 chart_id = self._extract_chart_id(chart_meta)
                 if chart_id is not None:
                     chart_ids.append(chart_id)
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(
                 f"Failed to fetch charts for dashboard {dashboard_id}: {exc}"
             )
@@ -261,7 +261,7 @@ class SupersetAdaptor(
     def list_charts(self, dashboard_id: Union[int, str]) -> List[ChartInfo]:
         try:
             charts = self._get_dashboard_charts(dashboard_id)
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(f"Failed to list charts for dashboard {dashboard_id}: {exc}")
             return []
 
@@ -288,7 +288,7 @@ class SupersetAdaptor(
     def list_datasets(self, dashboard_id: Union[int, str]) -> List[DatasetInfo]:
         try:
             charts = self._get_dashboard_charts(dashboard_id)
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(
                 f"Failed to list datasets for dashboard {dashboard_id}: {exc}"
             )
@@ -381,7 +381,7 @@ class SupersetAdaptor(
     ) -> Optional[ChartInfo]:
         try:
             chart_detail = self._get_chart(chart_id)
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(f"Failed to fetch chart {chart_id}: {exc}")
             return None
         dataset_info = chart_detail.get("dataset")
@@ -450,7 +450,7 @@ class SupersetAdaptor(
                 form_data,
                 query_context,
             )
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(f"Failed to fetch SQL for chart {chart_id}: {exc}")
 
         metrics: List[MetricDef] = []
@@ -511,7 +511,7 @@ class SupersetAdaptor(
 
         try:
             data = self._request_json("GET", f"dataset/{dataset_id}")
-        except SupersetAdaptorError as exc:
+        except SupersetAdapterError as exc:
             logger.warning(f"Failed to fetch dataset {dataset_id}: {exc}")
             return None
 
@@ -1056,7 +1056,7 @@ class SupersetAdaptor(
                 sqls, query_indexes = self._collect_sql_via_chart_data(
                     chart_id, query_context
                 )
-            except SupersetAdaptorError as exc:
+            except SupersetAdapterError as exc:
                 logger.warning(
                     f"chart/data failed for {chart_id}, trying explore_json: {exc}"
                 )
@@ -1113,8 +1113,8 @@ class SupersetAdaptor(
 
         try:
             response_data = self._request_json("POST", "chart/data", json=payload)
-        except SupersetAdaptorError as exc:
-            raise SupersetAdaptorError(
+        except SupersetAdapterError as exc:
+            raise SupersetAdapterError(
                 f"chart/data failed for {chart_id}: {exc}"
             ) from exc
 
@@ -1146,7 +1146,7 @@ class SupersetAdaptor(
         data = self._request_json("GET", f"dashboard/{dashboard_id}/charts")
         charts = data.get("result", data)
         if not isinstance(charts, list):
-            raise SupersetAdaptorError(f"Unexpected charts payload: {charts}")
+            raise SupersetAdapterError(f"Unexpected charts payload: {charts}")
         return charts
 
     def _get_chart(self, chart_id: Union[str, int]) -> Dict[str, Any]:
@@ -1555,7 +1555,7 @@ class SupersetAdaptor(
         try:
             return response.json()
         except json.JSONDecodeError as exc:
-            raise SupersetAdaptorError(
+            raise SupersetAdapterError(
                 f"Invalid JSON response for {endpoint}: {exc}"
             ) from exc
 
@@ -1573,11 +1573,11 @@ class SupersetAdaptor(
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as exc:
-            raise SupersetAdaptorError(
+            raise SupersetAdapterError(
                 f"Superset API {method} {endpoint} failed with {exc.response.status_code}: {exc.response.text}"
             ) from exc
         except httpx.HTTPError as exc:
-            raise SupersetAdaptorError(
+            raise SupersetAdapterError(
                 f"Superset API {method} {endpoint} failed: {exc}"
             ) from exc
 
@@ -1612,8 +1612,8 @@ class SupersetAdaptor(
             response = self._request(
                 "POST", "security/login", require_auth=False, json=payload
             )
-        except SupersetAdaptorError as exc:
-            raise SupersetAdaptorError(f"Authentication failed: {exc}") from exc
+        except SupersetAdapterError as exc:
+            raise SupersetAdapterError(f"Authentication failed: {exc}") from exc
 
         data = response.json()
         token_payload = data.get("result", data)
@@ -1622,7 +1622,7 @@ class SupersetAdaptor(
         expires_in = token_payload.get("expires_in")
 
         if not access_token:
-            raise SupersetAdaptorError("Superset login response missing access_token")
+            raise SupersetAdapterError("Superset login response missing access_token")
 
         auth_headers = {"Authorization": f"{token_type} {access_token}".strip()}
         self._auth_header_value = auth_headers

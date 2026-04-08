@@ -22,7 +22,7 @@ class AuthParam(BaseModel):
     extra: Optional[Dict[str, Any]] = None
 
 
-# --- Existing read models (migrated from base_adaptor.py) ---
+# --- Existing read models (migrated from base_adapter.py) ---
 
 
 class ColumnInfo(BaseModel):

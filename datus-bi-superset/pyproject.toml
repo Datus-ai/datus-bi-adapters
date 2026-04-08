@@ -12,7 +12,7 @@ dependencies = [
     "sqlglot>=20.0.0",
 ]
 
-[project.entry-points."datus.bi_adaptors"]
+[project.entry-points."datus.bi_adapters"]
 superset = "datus_bi_superset:register"
 
 [tool.uv.sources]

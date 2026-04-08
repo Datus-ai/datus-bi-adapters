@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from datus_bi_core.models import AuthParam
-from datus_bi_grafana.adaptor import GrafanaAdaptor
+from datus_bi_grafana.adapter import GrafanaAdapter
 
 GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://localhost:3000")
 GRAFANA_USER = os.environ.get("GRAFANA_USER", "admin")
@@ -85,8 +85,8 @@ def grafana_api_token():
 
 
 @pytest.fixture(scope="session")
-def grafana_adaptor(grafana_api_token):
-    return GrafanaAdaptor(
+def grafana_adapter(grafana_api_token):
+    return GrafanaAdapter(
         api_base_url=GRAFANA_URL,
         auth_params=AuthParam(api_key=grafana_api_token),
         dialect="postgres",

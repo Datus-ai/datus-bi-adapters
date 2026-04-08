@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from datus_bi_core.models import AuthParam
-from datus_bi_superset.adaptor import SupersetAdaptor
+from datus_bi_superset.adapter import SupersetAdapter
 
 SUPERSET_URL = os.environ.get("SUPERSET_URL", "http://localhost:8088")
 SUPERSET_USER = os.environ.get("SUPERSET_USER", "admin")
@@ -29,13 +29,13 @@ _EXAMPLES_URI = (
 _EXAMPLES_DB_NAME = "datus_test_examples"
 
 
-def _ensure_examples_database(adaptor: "SupersetAdaptor") -> int:
+def _ensure_examples_database(adapter: "SupersetAdapter") -> int:
     """Return id of the examples database connection.
 
     After ``superset load-examples`` runs, an 'examples' connection is already
     registered.  If not found, create one pointing at the Docker postgres service.
     """
-    dbs = adaptor.list_bi_databases()
+    dbs = adapter.list_bi_databases()
     if dbs:
         # Prefer a database matching the expected name; fall back to first
         for db in dbs:
@@ -44,7 +44,7 @@ def _ensure_examples_database(adaptor: "SupersetAdaptor") -> int:
         return dbs[0]["id"]
 
     # Fallback: create connection pointing to the Docker-internal postgres service
-    data = adaptor._request_json(
+    data = adapter._request_json(
         "POST",
         "database",
         json={
@@ -61,12 +61,12 @@ def _ensure_examples_database(adaptor: "SupersetAdaptor") -> int:
 
 
 @pytest.fixture(scope="session")
-def superset_adaptor():
+def superset_adapter():
     if not _is_superset_running():
         pytest.skip(
             f"Superset not reachable at {SUPERSET_URL}. Run: docker compose up -d"
         )
-    return SupersetAdaptor(
+    return SupersetAdapter(
         api_base_url=SUPERSET_URL,
         auth_params=AuthParam(username=SUPERSET_USER, password=SUPERSET_PASS),
         dialect="postgresql",
@@ -74,6 +74,6 @@ def superset_adaptor():
 
 
 @pytest.fixture(scope="session")
-def superset_db_id(superset_adaptor):
+def superset_db_id(superset_adapter):
     """Return id of the examples database connection (created by superset load-examples)."""
-    return _ensure_examples_database(superset_adaptor)
+    return _ensure_examples_database(superset_adapter)

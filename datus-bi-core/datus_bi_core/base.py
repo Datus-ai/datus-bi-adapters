@@ -16,7 +16,7 @@ from datus_bi_core.models import (
 )
 
 
-class BIAdaptorBase(ABC):
+class BIAdapterBase(ABC):
     """
     Two-layer design:
       1) Discovery: list dashboards/charts/datasets

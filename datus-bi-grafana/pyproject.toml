@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.0.0",
 ]
 
-[project.entry-points."datus.bi_adaptors"]
+[project.entry-points."datus.bi_adapters"]
 grafana = "datus_bi_grafana:register"
 
 [tool.uv.sources]

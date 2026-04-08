@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from datus_bi_core import (
-    BIAdaptorBase,
+    BIAdapterBase,
     ChartWriteMixin,
     DashboardWriteMixin,
     DatusBiException,
@@ -37,10 +37,10 @@ _PANEL_TYPE_MAP = {
 }
 
 
-class GrafanaAdaptor(
-    BIAdaptorBase, ListDashboardsMixin, DashboardWriteMixin, ChartWriteMixin
+class GrafanaAdapter(
+    BIAdapterBase, ListDashboardsMixin, DashboardWriteMixin, ChartWriteMixin
 ):
-    """Grafana BI adaptor — supports basic auth (username/password) or Bearer token."""
+    """Grafana BI adapter — supports basic auth (username/password) or Bearer token."""
 
     def __init__(
         self,

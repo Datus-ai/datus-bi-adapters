@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0.
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
-from datus_bi_core.base import BIAdaptorBase
+from datus_bi_core.base import BIAdapterBase
 from datus_bi_core.exceptions import DatusBiException
 from datus_bi_core.mixins import (
     ChartWriteMixin,
@@ -24,13 +24,13 @@ from datus_bi_core.models import (
     MetricDef,
     QuerySpec,
 )
-from datus_bi_core.registry import BIAdaptorRegistry, adaptor_registry
+from datus_bi_core.registry import BIAdapterRegistry, adapter_registry
 
 __all__ = [
-    "BIAdaptorBase",
+    "BIAdapterBase",
     "DatusBiException",
-    "BIAdaptorRegistry",
-    "adaptor_registry",
+    "BIAdapterRegistry",
+    "adapter_registry",
     "ListDashboardsMixin",
     "DashboardWriteMixin",
     "ChartWriteMixin",

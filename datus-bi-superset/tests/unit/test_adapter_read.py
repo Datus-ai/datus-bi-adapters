@@ -10,9 +10,9 @@ import pytest
 
 from datus_bi_core import AuthParam, AuthType
 from datus_bi_core.models import DimensionDef, MetricDef
-from datus_bi_superset.adaptor import (
-    SupersetAdaptor,
-    SupersetAdaptorError,
+from datus_bi_superset.adapter import (
+    SupersetAdapter,
+    SupersetAdapterError,
     _coerce_id,
     _load_json_field,
     _normalize_series_columns_in_query,
@@ -40,118 +40,118 @@ def mock_client():
 
 
 @pytest.fixture
-def adaptor(auth_params, mock_client):
-    """Create a SupersetAdaptor instance with mocked client."""
+def adapter(auth_params, mock_client):
+    """Create a SupersetAdapter instance with mocked client."""
     with patch("httpx.Client", return_value=mock_client):
-        adaptor = SupersetAdaptor(
+        adapter = SupersetAdapter(
             api_base_url="http://localhost:8088/api/v1",
             auth_params=auth_params,
             dialect="mysql",
             timeout=30.0,
         )
-        adaptor._client = mock_client
-        adaptor._auth_header_value = {"Authorization": "Bearer test_token"}
-        adaptor._token_expiration = 9999999999  # Far future
-        return adaptor
+        adapter._client = mock_client
+        adapter._auth_header_value = {"Authorization": "Bearer test_token"}
+        adapter._token_expiration = 9999999999  # Far future
+        return adapter
 
 
-class TestSupersetAdaptorInitialization:
-    """Test SupersetAdaptor initialization and basic properties."""
+class TestSupersetAdapterInitialization:
+    """Test SupersetAdapter initialization and basic properties."""
 
     def test_init_with_api_v1_url(self, auth_params):
         """Test initialization with /api/v1 URL."""
         with patch("httpx.Client") as mock_client_class:
-            adaptor = SupersetAdaptor(
+            adapter = SupersetAdapter(
                 api_base_url="http://localhost:8088/api/v1",
                 auth_params=auth_params,
                 dialect="postgresql",
             )
 
-            assert adaptor.base_url == "http://localhost:8088"
-            assert adaptor._api_base == "http://localhost:8088/api/v1"
-            assert adaptor.dialect == "postgresql"
+            assert adapter.base_url == "http://localhost:8088"
+            assert adapter._api_base == "http://localhost:8088/api/v1"
+            assert adapter.dialect == "postgresql"
             mock_client_class.assert_called_once()
 
     def test_init_without_api_v1_url(self, auth_params):
         """Test initialization without /api/v1 URL."""
         with patch("httpx.Client"):
-            adaptor = SupersetAdaptor(
+            adapter = SupersetAdapter(
                 api_base_url="http://localhost:8088",
                 auth_params=auth_params,
                 dialect="mysql",
             )
 
-            assert adaptor.base_url == "http://localhost:8088"
-            assert adaptor._api_base == "http://localhost:8088/api/v1"
+            assert adapter.base_url == "http://localhost:8088"
+            assert adapter._api_base == "http://localhost:8088/api/v1"
 
-    def test_platform_name(self, adaptor):
+    def test_platform_name(self, adapter):
         """Test platform_name method."""
-        assert adaptor.platform_name() == "superset"
+        assert adapter.platform_name() == "superset"
 
-    def test_auth_type(self, adaptor):
+    def test_auth_type(self, adapter):
         """Test auth_type method."""
-        assert adaptor.auth_type() == AuthType.LOGIN
+        assert adapter.auth_type() == AuthType.LOGIN
 
-    def test_close(self, adaptor, mock_client):
+    def test_close(self, adapter, mock_client):
         """Test close method."""
-        adaptor.close()
+        adapter.close()
         mock_client.close.assert_called_once()
 
 
 class TestParseDashboardId:
     """Test dashboard ID parsing functionality."""
 
-    def test_parse_numeric_string(self, adaptor):
+    def test_parse_numeric_string(self, adapter):
         """Test parsing numeric string."""
-        result = adaptor.parse_dashboard_id("123")
+        result = adapter.parse_dashboard_id("123")
         assert result == 123
 
-    def test_parse_empty_string(self, adaptor):
+    def test_parse_empty_string(self, adapter):
         """Test parsing empty string."""
-        result = adaptor.parse_dashboard_id("")
+        result = adapter.parse_dashboard_id("")
         assert result == ""
 
-        result = adaptor.parse_dashboard_id("   ")
+        result = adapter.parse_dashboard_id("   ")
         assert result == ""
 
-    def test_parse_full_url(self, adaptor):
+    def test_parse_full_url(self, adapter):
         """Test parsing full dashboard URL."""
         url = "http://localhost:8088/superset/dashboard/123/"
-        result = adaptor.parse_dashboard_id(url)
+        result = adapter.parse_dashboard_id(url)
         assert result == "123"
 
-    def test_parse_url_with_query_params(self, adaptor):
+    def test_parse_url_with_query_params(self, adapter):
         """Test parsing URL with query parameters."""
         # /dashboard is a route segment, so query params are used as fallback
         url = "http://localhost:8088/dashboard?dashboard_id=456"
-        result = adaptor.parse_dashboard_id(url)
+        result = adapter.parse_dashboard_id(url)
         assert result == "456"
 
         # URL without path segments will try query params
         url = "http://localhost:8088/?dashboard_id=456"
-        result = adaptor.parse_dashboard_id(url)
+        result = adapter.parse_dashboard_id(url)
         assert result == "456"
 
         url = "http://localhost:8088/?id=789"
-        result = adaptor.parse_dashboard_id(url)
+        result = adapter.parse_dashboard_id(url)
         assert result == "789"
 
-    def test_parse_complex_path(self, adaptor):
+    def test_parse_complex_path(self, adapter):
         """Test parsing URL with complex path."""
         url = "http://localhost:8088/superset/dashboard/my-dashboard-slug"
-        result = adaptor.parse_dashboard_id(url)
+        result = adapter.parse_dashboard_id(url)
         assert result == "my-dashboard-slug"
 
-    def test_parse_non_url_string(self, adaptor):
+    def test_parse_non_url_string(self, adapter):
         """Test parsing non-URL string."""
-        result = adaptor.parse_dashboard_id("my-custom-id")
+        result = adapter.parse_dashboard_id("my-custom-id")
         assert result == "my-custom-id"
 
 
 class TestGetDashboardInfo:
     """Test dashboard information retrieval."""
 
-    def test_get_dashboard_info_success(self, adaptor, mock_client):
+    def test_get_dashboard_info_success(self, adapter, mock_client):
         """Test successful dashboard info retrieval."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -174,7 +174,7 @@ class TestGetDashboardInfo:
 
         mock_client.request.side_effect = [mock_response, charts_response]
 
-        dashboard_info = adaptor.get_dashboard_info(123)
+        dashboard_info = adapter.get_dashboard_info(123)
 
         assert dashboard_info is not None
         assert dashboard_info.id == 123
@@ -183,7 +183,7 @@ class TestGetDashboardInfo:
         assert len(dashboard_info.chart_ids) == 2
         assert dashboard_info.chart_ids == [1, 2]
 
-    def test_get_dashboard_info_with_slug(self, adaptor, mock_client):
+    def test_get_dashboard_info_with_slug(self, adapter, mock_client):
         """Test dashboard info with slug as name."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -197,11 +197,11 @@ class TestGetDashboardInfo:
 
         mock_client.request.side_effect = [mock_response, charts_response]
 
-        dashboard_info = adaptor.get_dashboard_info(123)
+        dashboard_info = adapter.get_dashboard_info(123)
 
         assert dashboard_info.name == "test-dashboard"
 
-    def test_get_dashboard_info_deduplicates_charts(self, adaptor, mock_client):
+    def test_get_dashboard_info_deduplicates_charts(self, adapter, mock_client):
         """Test that duplicate chart IDs are removed."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -223,19 +223,19 @@ class TestGetDashboardInfo:
 
         mock_client.request.side_effect = [mock_response, charts_response]
 
-        dashboard_info = adaptor.get_dashboard_info(123)
+        dashboard_info = adapter.get_dashboard_info(123)
 
         assert len(dashboard_info.chart_ids) == 3
         assert dashboard_info.chart_ids == [1, 2, 3]
 
-    def test_get_dashboard_info_error(self, adaptor, mock_client):
+    def test_get_dashboard_info_error(self, adapter, mock_client):
         """Test dashboard info retrieval with error."""
         mock_client.request.side_effect = httpx.HTTPStatusError(
             "Not found", request=MagicMock(), response=MagicMock(status_code=404, text="Not found")
         )
 
-        with pytest.raises(SupersetAdaptorError) as exc_info:
-            adaptor.get_dashboard_info(999)
+        with pytest.raises(SupersetAdapterError) as exc_info:
+            adapter.get_dashboard_info(999)
 
         assert "failed with 404" in str(exc_info.value)
 
@@ -243,7 +243,7 @@ class TestGetDashboardInfo:
 class TestListCharts:
     """Test chart listing functionality."""
 
-    def test_list_charts_success(self, adaptor, mock_client):
+    def test_list_charts_success(self, adapter, mock_client):
         """Test successful chart listing."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -263,7 +263,7 @@ class TestListCharts:
         }
         mock_client.request.return_value = mock_response
 
-        charts = adaptor.list_charts(123)
+        charts = adapter.list_charts(123)
 
         assert len(charts) == 2
         assert charts[0].id == 1
@@ -273,7 +273,7 @@ class TestListCharts:
         assert charts[1].id == 2
         assert charts[1].name == "Revenue Chart"
 
-    def test_list_charts_with_form_data(self, adaptor, mock_client):
+    def test_list_charts_with_form_data(self, adapter, mock_client):
         """Test chart listing with form_data containing chart info."""
         form_data = json.dumps({"slice_id": 3, "viz_type": "pie"})
 
@@ -290,27 +290,27 @@ class TestListCharts:
         }
         mock_client.request.return_value = mock_response
 
-        charts = adaptor.list_charts(123)
+        charts = adapter.list_charts(123)
 
         assert len(charts) == 1
         assert charts[0].id == 3
         assert charts[0].chart_type == "pie"
 
-    def test_list_charts_empty(self, adaptor, mock_client):
+    def test_list_charts_empty(self, adapter, mock_client):
         """Test listing charts when none exist."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": []}
         mock_client.request.return_value = mock_response
 
-        charts = adaptor.list_charts(123)
+        charts = adapter.list_charts(123)
 
         assert len(charts) == 0
 
-    def test_list_charts_error(self, adaptor, mock_client):
+    def test_list_charts_error(self, adapter, mock_client):
         """Test chart listing with error."""
-        mock_client.request.side_effect = SupersetAdaptorError("API error")
+        mock_client.request.side_effect = SupersetAdapterError("API error")
 
-        charts = adaptor.list_charts(123)
+        charts = adapter.list_charts(123)
 
         # Should return empty list on error
         assert len(charts) == 0
@@ -319,7 +319,7 @@ class TestListCharts:
 class TestListDatasets:
     """Test dataset listing functionality."""
 
-    def test_list_datasets_success(self, adaptor, mock_client):
+    def test_list_datasets_success(self, adapter, mock_client):
         """Test successful dataset listing."""
         form_data = json.dumps({"datasource": "1__table"})
         query_context = json.dumps(
@@ -355,7 +355,7 @@ class TestListDatasets:
         }
         mock_client.request.return_value = mock_response
 
-        datasets = adaptor.list_datasets(123)
+        datasets = adapter.list_datasets(123)
 
         assert len(datasets) == 1
         assert datasets[0].id == 1
@@ -363,7 +363,7 @@ class TestListDatasets:
         assert datasets[0].name in ["sales_table", "1"]
         assert datasets[0].dialect == "mysql"
 
-    def test_list_datasets_with_sql(self, adaptor, mock_client):
+    def test_list_datasets_with_sql(self, adapter, mock_client):
         """Test dataset listing with SQL-based virtual dataset."""
         form_data = json.dumps({"datasource": "1__table"})
 
@@ -382,19 +382,19 @@ class TestListDatasets:
         }
         mock_client.request.return_value = mock_response
 
-        datasets = adaptor.list_datasets(123)
+        datasets = adapter.list_datasets(123)
 
         assert len(datasets) == 1
         # Should extract tables from SQL
         assert datasets[0].tables is not None
 
-    def test_list_datasets_empty(self, adaptor, mock_client):
+    def test_list_datasets_empty(self, adapter, mock_client):
         """Test listing datasets when none exist."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"result": []}
         mock_client.request.return_value = mock_response
 
-        datasets = adaptor.list_datasets(123)
+        datasets = adapter.list_datasets(123)
 
         assert len(datasets) == 0
 
@@ -402,7 +402,7 @@ class TestListDatasets:
 class TestGetChart:
     """Test chart detail retrieval."""
 
-    def test_get_chart_success(self, adaptor, mock_client):
+    def test_get_chart_success(self, adapter, mock_client):
         """Test successful chart retrieval."""
         form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "bar"}
         query_context = {
@@ -429,8 +429,8 @@ class TestGetChart:
         mock_client.request.return_value = mock_response
 
         # Mock SQL collection
-        with patch.object(adaptor, "_collect_sql_from_chart", return_value=(["SELECT * FROM test"], {0})):
-            chart = adaptor.get_chart(1, 123)
+        with patch.object(adapter, "_collect_sql_from_chart", return_value=(["SELECT * FROM test"], {0})):
+            chart = adapter.get_chart(1, 123)
 
         assert chart is not None
         assert chart.id == 1
@@ -441,7 +441,7 @@ class TestGetChart:
         assert chart.query.kind == "sql"
         assert len(chart.query.sql) == 1
 
-    def test_get_chart_with_nested_form_data(self, adaptor, mock_client):
+    def test_get_chart_with_nested_form_data(self, adapter, mock_client):
         """Test chart retrieval with nested form_data in slice."""
         slice_form_data = {"slice_id": 1, "viz_type": "line"}
         outer_form_data = {"slice_id": 1, "metric": "revenue"}
@@ -461,17 +461,17 @@ class TestGetChart:
         }
         mock_client.request.return_value = mock_response
 
-        with patch.object(adaptor, "_collect_sql_from_chart", return_value=([], None)):
-            chart = adaptor.get_chart(1)
+        with patch.object(adapter, "_collect_sql_from_chart", return_value=([], None)):
+            chart = adapter.get_chart(1)
 
         assert chart is not None
         assert chart.chart_type == "line"
 
-    def test_get_chart_error(self, adaptor, mock_client):
+    def test_get_chart_error(self, adapter, mock_client):
         """Test chart retrieval with error."""
-        mock_client.request.side_effect = SupersetAdaptorError("Chart not found")
+        mock_client.request.side_effect = SupersetAdapterError("Chart not found")
 
-        chart = adaptor.get_chart(999)
+        chart = adapter.get_chart(999)
 
         assert chart is None
 
@@ -479,7 +479,7 @@ class TestGetChart:
 class TestGetDataset:
     """Test dataset retrieval."""
 
-    def test_get_dataset_success(self, adaptor, mock_client):
+    def test_get_dataset_success(self, adapter, mock_client):
         """Test successful dataset retrieval."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -500,7 +500,7 @@ class TestGetDataset:
         }
         mock_client.request.return_value = mock_response
 
-        dataset = adaptor.get_dataset(10)
+        dataset = adapter.get_dataset(10)
 
         assert dataset is not None
         assert dataset.id == 10
@@ -510,7 +510,7 @@ class TestGetDataset:
         assert len(dataset.columns) == 2
         assert len(dataset.metrics) == 1
 
-    def test_get_dataset_with_cache(self, adaptor, mock_client):
+    def test_get_dataset_with_cache(self, adapter, mock_client):
         """Test dataset retrieval uses cache."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -522,24 +522,24 @@ class TestGetDataset:
         mock_client.request.return_value = mock_response
 
         # First call
-        dataset1 = adaptor.get_dataset(10)
+        dataset1 = adapter.get_dataset(10)
         # Second call should use cache
-        dataset2 = adaptor.get_dataset(10)
+        dataset2 = adapter.get_dataset(10)
 
         assert dataset1 == dataset2
         # Request should only be called once
         assert mock_client.request.call_count == 1
 
-    def test_get_dataset_none(self, adaptor):
+    def test_get_dataset_none(self, adapter):
         """Test dataset retrieval with None ID."""
-        dataset = adaptor.get_dataset(None)
+        dataset = adapter.get_dataset(None)
         assert dataset is None
 
-    def test_get_dataset_error(self, adaptor, mock_client):
+    def test_get_dataset_error(self, adapter, mock_client):
         """Test dataset retrieval with error."""
-        mock_client.request.side_effect = SupersetAdaptorError("Dataset not found")
+        mock_client.request.side_effect = SupersetAdapterError("Dataset not found")
 
-        dataset = adaptor.get_dataset(999)
+        dataset = adapter.get_dataset(999)
 
         assert dataset is None
 
@@ -547,9 +547,9 @@ class TestGetDataset:
 class TestMetricsAndDimensions:
     """Test metrics and dimensions normalization."""
 
-    def test_normalize_metric_string(self, adaptor):
+    def test_normalize_metric_string(self, adapter):
         """Test normalizing string metric."""
-        metric = adaptor._normalize_metric("count", "sales_table", "chart")
+        metric = adapter._normalize_metric("count", "sales_table", "chart")
 
         assert metric is not None
         assert metric.name == "count"
@@ -557,7 +557,7 @@ class TestMetricsAndDimensions:
         assert metric.table == "sales_table"
         assert metric.origin == "chart"
 
-    def test_normalize_metric_dict_simple(self, adaptor):
+    def test_normalize_metric_dict_simple(self, adapter):
         """Test normalizing dict metric with simple expression."""
         metric_dict = {
             "label": "Total Sales",
@@ -565,14 +565,14 @@ class TestMetricsAndDimensions:
             "description": "Sum of all sales",
         }
 
-        metric = adaptor._normalize_metric(metric_dict, "sales", "dataset")
+        metric = adapter._normalize_metric(metric_dict, "sales", "dataset")
 
         assert metric is not None
         assert metric.name == "Total Sales"
         assert metric.expression == "SUM(amount)"
         assert metric.description == "Sum of all sales"
 
-    def test_normalize_metric_dict_simple_type(self, adaptor):
+    def test_normalize_metric_dict_simple_type(self, adapter):
         """Test normalizing dict metric with SIMPLE expression type."""
         metric_dict = {
             "label": "Count Items",
@@ -581,13 +581,13 @@ class TestMetricsAndDimensions:
             "column": {"column_name": "item_id"},
         }
 
-        metric = adaptor._normalize_metric(metric_dict, "items", "chart")
+        metric = adapter._normalize_metric(metric_dict, "items", "chart")
 
         assert metric is not None
         assert metric.name == "Count Items"
         assert metric.expression == "COUNT(item_id)"
 
-    def test_normalize_metric_dict_sql_type(self, adaptor):
+    def test_normalize_metric_dict_sql_type(self, adapter):
         """Test normalizing dict metric with SQL expression type."""
         metric_dict = {
             "metric_name": "Revenue",
@@ -595,27 +595,27 @@ class TestMetricsAndDimensions:
             "sqlExpression": "SUM(price * quantity)",
         }
 
-        metric = adaptor._normalize_metric(metric_dict, "orders", "dataset")
+        metric = adapter._normalize_metric(metric_dict, "orders", "dataset")
 
         assert metric is not None
         assert metric.name == "Revenue"
         assert metric.expression == "SUM(price * quantity)"
 
-    def test_normalize_metric_empty(self, adaptor):
+    def test_normalize_metric_empty(self, adapter):
         """Test normalizing empty metric."""
-        assert adaptor._normalize_metric("", "table", "chart") is None
-        assert adaptor._normalize_metric({}, "table", "chart") is None
+        assert adapter._normalize_metric("", "table", "chart") is None
+        assert adapter._normalize_metric({}, "table", "chart") is None
 
-    def test_normalize_dimension_string(self, adaptor):
+    def test_normalize_dimension_string(self, adapter):
         """Test normalizing string dimension."""
-        dim = adaptor._normalize_dimension("category", "products", "chart")
+        dim = adapter._normalize_dimension("category", "products", "chart")
 
         assert dim is not None
         assert dim.name == "category"
         assert dim.table == "products"
         assert dim.origin == "chart"
 
-    def test_normalize_dimension_dict(self, adaptor):
+    def test_normalize_dimension_dict(self, adapter):
         """Test normalizing dict dimension."""
         dim_dict = {
             "column_name": "created_at",
@@ -624,7 +624,7 @@ class TestMetricsAndDimensions:
             "description": "Record creation timestamp",
         }
 
-        dim = adaptor._normalize_dimension(dim_dict, "records", "dataset")
+        dim = adapter._normalize_dimension(dim_dict, "records", "dataset")
 
         assert dim is not None
         assert dim.name == "created_at"
@@ -632,7 +632,7 @@ class TestMetricsAndDimensions:
         assert dim.data_type == "TIMESTAMP"
         assert dim.description == "Record creation timestamp"
 
-    def test_dedupe_metrics(self, adaptor):
+    def test_dedupe_metrics(self, adapter):
         """Test deduplication of metrics."""
         metrics = [
             MetricDef(name="count", expression="COUNT(*)", origin="chart"),
@@ -640,13 +640,13 @@ class TestMetricsAndDimensions:
             MetricDef(name="sum", expression="SUM(amount)", origin="chart"),
         ]
 
-        deduped = adaptor._dedupe_metrics(metrics)
+        deduped = adapter._dedupe_metrics(metrics)
 
         assert len(deduped) == 2
         assert deduped[0].name == "count"
         assert deduped[1].name == "sum"
 
-    def test_dedupe_dimensions(self, adaptor):
+    def test_dedupe_dimensions(self, adapter):
         """Test deduplication of dimensions."""
         dimensions = [
             DimensionDef(name="category", origin="chart"),
@@ -654,7 +654,7 @@ class TestMetricsAndDimensions:
             DimensionDef(name="region", origin="chart"),
         ]
 
-        deduped = adaptor._dedupe_dimensions(dimensions)
+        deduped = adapter._dedupe_dimensions(dimensions)
 
         assert len(deduped) == 2
         assert deduped[0].name == "category"
@@ -664,27 +664,27 @@ class TestMetricsAndDimensions:
 class TestAuthentication:
     """Test authentication functionality."""
 
-    def test_ensure_authenticated_with_valid_token(self, adaptor):
+    def test_ensure_authenticated_with_valid_token(self, adapter):
         """Test that authentication is not triggered when token is valid."""
-        adaptor._auth_header_value = {"Authorization": "Bearer valid_token"}
-        adaptor._token_expiration = 9999999999  # Far future
+        adapter._auth_header_value = {"Authorization": "Bearer valid_token"}
+        adapter._token_expiration = 9999999999  # Far future
 
-        with patch.object(adaptor, "_authenticate") as mock_auth:
-            adaptor._ensure_authenticated()
+        with patch.object(adapter, "_authenticate") as mock_auth:
+            adapter._ensure_authenticated()
             mock_auth.assert_not_called()
 
-    def test_ensure_authenticated_with_expired_token(self, adaptor):
+    def test_ensure_authenticated_with_expired_token(self, adapter):
         """Test that authentication is triggered when token expires."""
-        adaptor._auth_header_value = None
-        adaptor._token_expiration = None
+        adapter._auth_header_value = None
+        adapter._token_expiration = None
 
-        with patch.object(adaptor, "_authenticate") as mock_auth:
-            adaptor._ensure_authenticated()
+        with patch.object(adapter, "_authenticate") as mock_auth:
+            adapter._ensure_authenticated()
             mock_auth.assert_called_once()
 
-    def test_authenticate_success(self, adaptor, mock_client):
+    def test_authenticate_success(self, adapter, mock_client):
         """Test successful authentication."""
-        adaptor._auth_header_value = None
+        adapter._auth_header_value = None
 
         login_response = MagicMock()
         login_response.json.return_value = {
@@ -702,17 +702,17 @@ class TestAuthentication:
         mock_client.get.return_value = csrf_response
 
         # Mock browser login to fail, so it uses API login
-        with patch.object(adaptor, "_try_login_by_browser", return_value=False):
-            with patch.object(adaptor, "_request", return_value=login_response):
-                adaptor._authenticate()
+        with patch.object(adapter, "_try_login_by_browser", return_value=False):
+            with patch.object(adapter, "_request", return_value=login_response):
+                adapter._authenticate()
 
-        assert adaptor._auth_header_value == {
+        assert adapter._auth_header_value == {
             "Authorization": "Bearer new_token",
             "X-CSRFToken": "csrf_test_token",
         }
-        assert adaptor._token_expiration is not None
+        assert adapter._token_expiration is not None
 
-    def test_try_login_by_browser_success(self, adaptor, mock_client):
+    def test_try_login_by_browser_success(self, adapter, mock_client):
         """Test successful browser-based login."""
         # Mock login page response
         login_page = MagicMock()
@@ -731,19 +731,19 @@ class TestAuthentication:
         mock_client.get.side_effect = [login_page, csrf_response]
         mock_client.post.return_value = login_post
 
-        result = adaptor._try_login_by_browser()
+        result = adapter._try_login_by_browser()
 
         assert result is True
-        assert adaptor._auth_header_value == {"X-CSRFToken": "csrf_token_value"}
+        assert adapter._auth_header_value == {"X-CSRFToken": "csrf_token_value"}
 
-    def test_try_login_by_browser_failure(self, adaptor, mock_client):
+    def test_try_login_by_browser_failure(self, adapter, mock_client):
         """Test failed browser-based login."""
         login_page = MagicMock()
         login_page.is_success = False
 
         mock_client.get.return_value = login_page
 
-        result = adaptor._try_login_by_browser()
+        result = adapter._try_login_by_browser()
 
         assert result is False
 
@@ -882,7 +882,7 @@ class TestHelperFunctions:
 class TestDataExtraction:
     """Test data extraction methods."""
 
-    def test_extract_datasource_ref_from_query_context(self, adaptor):
+    def test_extract_datasource_ref_from_query_context(self, adapter):
         """Test extracting datasource reference from query_context."""
         query_context = {
             "datasource": {
@@ -892,60 +892,60 @@ class TestDataExtraction:
             }
         }
 
-        ref = adaptor._extract_datasource_ref(query_context=query_context)
+        ref = adapter._extract_datasource_ref(query_context=query_context)
 
         assert ref is not None
         assert ref["id"] == 100
         assert ref["type"] == "table"
 
-    def test_extract_datasource_ref_from_form_data(self, adaptor):
+    def test_extract_datasource_ref_from_form_data(self, adapter):
         """Test extracting datasource reference from form_data."""
         form_data = {
             "datasource": "200__table",
             "datasource_type": "table",
         }
 
-        ref = adaptor._extract_datasource_ref(form_data=form_data)
+        ref = adapter._extract_datasource_ref(form_data=form_data)
 
         assert ref is not None
         assert ref["id"] == 200
         assert ref["type"] == "table"
 
-    def test_extract_datasource_ref_priority(self, adaptor):
+    def test_extract_datasource_ref_priority(self, adapter):
         """Test datasource reference extraction priority."""
         query_context = {"datasource": {"id": 100, "type": "table"}}
         form_data = {"datasource": "200__table"}
 
         # query_context should take priority
-        ref = adaptor._extract_datasource_ref(query_context=query_context, form_data=form_data)
+        ref = adapter._extract_datasource_ref(query_context=query_context, form_data=form_data)
 
         assert ref["id"] == 100
 
-    def test_extract_datasource_ref_none(self, adaptor):
+    def test_extract_datasource_ref_none(self, adapter):
         """Test extracting datasource reference when none exists."""
-        ref = adaptor._extract_datasource_ref()
+        ref = adapter._extract_datasource_ref()
 
         assert ref is None
 
-    def test_tables_from_sql(self, adaptor):
+    def test_tables_from_sql(self, adapter):
         """Test extracting tables from SQL."""
         sql = "SELECT * FROM sales JOIN customers ON sales.customer_id = customers.id"
 
-        tables = adaptor._tables_from_sql(sql)
+        tables = adapter._tables_from_sql(sql)
 
         assert isinstance(tables, list)
         # Should extract table names (depends on SQL parser)
 
-    def test_tables_from_sql_empty(self, adaptor):
+    def test_tables_from_sql_empty(self, adapter):
         """Test extracting tables from empty SQL."""
-        assert adaptor._tables_from_sql(None) == []
-        assert adaptor._tables_from_sql("") == []
+        assert adapter._tables_from_sql(None) == []
+        assert adapter._tables_from_sql("") == []
 
-    def test_dedupe_tables(self, adaptor):
+    def test_dedupe_tables(self, adapter):
         """Test deduplication of table names."""
         tables = ["sales", "customers", "sales", "products"]
 
-        deduped = adaptor._dedupe_tables(tables)
+        deduped = adapter._dedupe_tables(tables)
 
         assert len(deduped) == 3
         assert deduped == ["sales", "customers", "products"]
@@ -954,7 +954,7 @@ class TestDataExtraction:
 class TestSQLCollection:
     """Test SQL collection from charts."""
 
-    def test_collect_sql_via_chart_data_success(self, adaptor, mock_client):
+    def test_collect_sql_via_chart_data_success(self, adapter, mock_client):
         """Test collecting SQL via chart/data API."""
         query_context = {
             "datasource": {"id": 1},
@@ -970,14 +970,14 @@ class TestSQLCollection:
         }
         mock_client.request.return_value = mock_response
 
-        sqls, indexes = adaptor._collect_sql_via_chart_data(1, query_context)
+        sqls, indexes = adapter._collect_sql_via_chart_data(1, query_context)
 
         assert len(sqls) == 2
         assert "SELECT COUNT(*)" in sqls[0]
         assert "SELECT SUM(amount)" in sqls[1]
         assert indexes == {0, 1}
 
-    def test_collect_sql_via_chart_data_empty_result(self, adaptor, mock_client):
+    def test_collect_sql_via_chart_data_empty_result(self, adapter, mock_client):
         """Test collecting SQL with empty result."""
         query_context = {"datasource": {"id": 1}}
 
@@ -985,19 +985,19 @@ class TestSQLCollection:
         mock_response.json.return_value = {"result": []}
         mock_client.request.return_value = mock_response
 
-        sqls, indexes = adaptor._collect_sql_via_chart_data(1, query_context)
+        sqls, indexes = adapter._collect_sql_via_chart_data(1, query_context)
 
         assert len(sqls) == 0
         assert indexes is None
 
-    def test_collect_sql_via_chart_data_error(self, adaptor, mock_client):
+    def test_collect_sql_via_chart_data_error(self, adapter, mock_client):
         """Test collecting SQL with API error."""
         query_context = {"datasource": {"id": 1}}
 
-        mock_client.request.side_effect = SupersetAdaptorError("API error")
+        mock_client.request.side_effect = SupersetAdapterError("API error")
 
-        with pytest.raises(SupersetAdaptorError) as exc_info:
-            adaptor._collect_sql_via_chart_data(1, query_context)
+        with pytest.raises(SupersetAdapterError) as exc_info:
+            adapter._collect_sql_via_chart_data(1, query_context)
 
         assert "chart/data failed" in str(exc_info.value)
 
@@ -1005,49 +1005,49 @@ class TestSQLCollection:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_get_chart_id_from_various_sources(self, adaptor):
+    def test_get_chart_id_from_various_sources(self, adapter):
         """Test extracting chart ID from various metadata sources."""
         # From form_data
         chart_meta = {"form_data": json.dumps({"slice_id": 100})}
-        assert adaptor._extract_chart_id(chart_meta) == 100
+        assert adapter._extract_chart_id(chart_meta) == 100
 
         # From slice_id
         chart_meta = {"slice_id": 200}
-        assert adaptor._extract_chart_id(chart_meta) == 200
+        assert adapter._extract_chart_id(chart_meta) == 200
 
         # From chart_id
         chart_meta = {"chart_id": 300}
-        assert adaptor._extract_chart_id(chart_meta) == 300
+        assert adapter._extract_chart_id(chart_meta) == 300
 
         # From id
         chart_meta = {"id": 400}
-        assert adaptor._extract_chart_id(chart_meta) == 400
+        assert adapter._extract_chart_id(chart_meta) == 400
 
-    def test_chart_description_fallback(self, adaptor):
+    def test_chart_description_fallback(self, adapter):
         """Test chart description extraction with fallbacks."""
         # From chart_meta
-        desc = adaptor._chart_description({"description": "Meta desc"}, None)
+        desc = adapter._chart_description({"description": "Meta desc"}, None)
         assert desc == "Meta desc"
 
         # From chart_detail
-        desc = adaptor._chart_description(None, {"description": "Detail desc"})
+        desc = adapter._chart_description(None, {"description": "Detail desc"})
         assert desc == "Detail desc"
 
         # From description_markeddown
-        desc = adaptor._chart_description(None, {"description_markeddown": "Markdown desc"})
+        desc = adapter._chart_description(None, {"description_markeddown": "Markdown desc"})
         assert desc == "Markdown desc"
 
         # Priority: chart_meta over chart_detail
-        desc = adaptor._chart_description({"description": "Meta"}, {"description": "Detail"})
+        desc = adapter._chart_description({"description": "Meta"}, {"description": "Detail"})
         assert desc == "Meta"
 
-    def test_normalize_api_base(self, adaptor):
+    def test_normalize_api_base(self, adapter):
         """Test API base URL normalization."""
-        assert adaptor._normalize_api_base("http://localhost:8088") == "http://localhost:8088/api/v1"
-        assert adaptor._normalize_api_base("http://localhost:8088/api/v1") == "http://localhost:8088/api/v1"
-        assert adaptor._normalize_api_base("http://localhost:8088/api/v1/") == "http://localhost:8088/api/v1"
+        assert adapter._normalize_api_base("http://localhost:8088") == "http://localhost:8088/api/v1"
+        assert adapter._normalize_api_base("http://localhost:8088/api/v1") == "http://localhost:8088/api/v1"
+        assert adapter._normalize_api_base("http://localhost:8088/api/v1/") == "http://localhost:8088/api/v1"
 
-    def test_parse_dataset_columns(self, adaptor):
+    def test_parse_dataset_columns(self, adapter):
         """Test parsing dataset columns."""
         dataset = {
             "columns": [
@@ -1057,7 +1057,7 @@ class TestEdgeCases:
             ]
         }
 
-        columns = adaptor._parse_dataset_columns(dataset, "test_table")
+        columns = adapter._parse_dataset_columns(dataset, "test_table")
 
         assert len(columns) == 3
         assert columns[0].name == "id"
@@ -1066,7 +1066,7 @@ class TestEdgeCases:
         assert columns[1].name == "name"
         assert columns[2].name == "amount"
 
-    def test_parse_dataset_metrics(self, adaptor):
+    def test_parse_dataset_metrics(self, adapter):
         """Test parsing dataset metrics."""
         dataset = {
             "metrics": [
@@ -1081,13 +1081,13 @@ class TestEdgeCases:
             ]
         }
 
-        metrics = adaptor._parse_dataset_metrics(dataset, "test_table")
+        metrics = adapter._parse_dataset_metrics(dataset, "test_table")
 
         assert len(metrics) == 2
         assert metrics[0].name == "count"
         assert metrics[1].name == "total_amount"
 
-    def test_parse_dataset_dimensions(self, adaptor):
+    def test_parse_dataset_dimensions(self, adapter):
         """Test parsing dataset dimensions."""
         dataset = {
             "columns": [
@@ -1098,8 +1098,8 @@ class TestEdgeCases:
             ]
         }
 
-        columns = adaptor._parse_dataset_columns(dataset, "test_table")
-        dimensions = adaptor._parse_dataset_dimensions(dataset, "test_table", columns)
+        columns = adapter._parse_dataset_columns(dataset, "test_table")
+        dimensions = adapter._parse_dataset_dimensions(dataset, "test_table", columns)
 
         # Should only include columns with groupby/filterable/is_dttm flags
         assert len(dimensions) == 3
