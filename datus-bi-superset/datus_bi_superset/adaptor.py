@@ -547,8 +547,6 @@ class SupersetAdaptor(
         self._dataset_cache[cache_key] = dataset_info
         return dataset_info
 
-    def extract_dashboard_id(self, dashboard_url: str) -> Union[int, str]:
-        return self.parse_dashboard_id(dashboard_url)
 
     # =========================================================================
     # ListDashboardsMixin
