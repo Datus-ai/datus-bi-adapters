@@ -181,8 +181,17 @@ class SupersetAdaptor(
         parsed = urlparse(stripped)
         if parsed.scheme and parsed.netloc:
             segments = [segment for segment in parsed.path.split("/") if segment]
+
+            # Look for a dashboard-like route keyword and take the segment after it
+            _DASHBOARD_ROUTE_KEYS = {"dashboard", "dashboards", "d"}
+            for i, seg in enumerate(segments):
+                if seg.lower() in _DASHBOARD_ROUTE_KEYS and i + 1 < len(segments):
+                    return segments[i + 1]
+
+            # Fall back to last non-route segment
+            _ROUTE_SEGMENTS = {"superset", "api", "v1", "explore", "chart"} | _DASHBOARD_ROUTE_KEYS
             for segment in reversed(segments):
-                if segment:
+                if segment.lower() not in _ROUTE_SEGMENTS:
                     return segment
 
             query_params = parse_qs(parsed.query)
@@ -271,7 +280,7 @@ class SupersetAdaptor(
                     or str(chart_id),
                     description=self._chart_description(chart_meta, chart_detail=None),
                     chart_type=chart_meta.get("viz_type")
-                    or chart_meta.get("form_data", {}).get("viz_type"),
+                    or (_load_json_field(chart_meta.get("form_data")) or {}).get("viz_type"),
                 )
             )
         return results
@@ -430,7 +439,7 @@ class SupersetAdaptor(
         else:
             datasource_ref = None
             tables = self._tables_from_sql(dataset_info.get("sql"))
-        table_name_for_tagging: Optional[str] = None
+        table_name_for_tagging: Optional[str] = tables[0] if tables else None
 
         sqls: List[str] = []
         used_query_indexes: Optional[set[int]] = None
@@ -818,6 +827,12 @@ class SupersetAdaptor(
                 position_data = {}
 
             chart_key = f"CHART-{chart_id}"
+
+            # Idempotent: skip if chart is already in position_data
+            if chart_key in position_data:
+                logger.info(f"Chart {chart_id} already in dashboard {dashboard_id} position_data")
+                return True
+
             row_key = f"ROW-{str(uuid.uuid4())[:8]}"
 
             # Ensure the required ROOT → GRID skeleton exists
@@ -848,7 +863,7 @@ class SupersetAdaptor(
                 "id": chart_key,
                 "children": [],
                 "parents": ["ROOT_ID", "GRID_ID", row_key],
-                "meta": {"chartId": int(chart_id), "width": 12, "height": 50},
+                "meta": {"chartId": int(chart_id) if str(chart_id).isdigit() else chart_id, "width": 12, "height": 50},
             }
 
             # Register the row in GRID_ID.children
@@ -871,7 +886,11 @@ class SupersetAdaptor(
                 existing_dash_ids = [
                     d.get("id") for d in chart_result.get("dashboards", []) if d.get("id")
                 ]
-                dash_id_int = int(dashboard_id)
+                try:
+                    dash_id_int = int(dashboard_id)
+                except (ValueError, TypeError):
+                    logger.warning(f"Cannot convert dashboard_id {dashboard_id} to int for dashboards list")
+                    return True
                 if dash_id_int not in existing_dash_ids:
                     existing_dash_ids.append(dash_id_int)
                 self._request_json(
@@ -931,6 +950,7 @@ class SupersetAdaptor(
         }
         data = self._request_json("PUT", f"dataset/{dataset_id}", json=payload)
         result = data.get("result", data)
+        self._dataset_cache.pop(str(dataset_id), None)
         return DatasetInfo(
             id=result.get("id", dataset_id),
             name=spec.name,
@@ -941,6 +961,7 @@ class SupersetAdaptor(
     def delete_dataset(self, dataset_id: Union[int, str]) -> bool:
         try:
             self._request_json("DELETE", f"dataset/{dataset_id}")
+            self._dataset_cache.pop(str(dataset_id), None)
             return True
         except Exception as exc:
             logger.warning(f"delete_dataset {dataset_id} failed: {exc}")
@@ -1052,6 +1073,8 @@ class SupersetAdaptor(
         chart_id = chart_info.get("slice_id")
         try:
             form_data = chart_info.get("form_data")
+            if not isinstance(form_data, dict):
+                return [], None
             form_data.setdefault("url_params", {})
 
             if dashboard_id:
@@ -1220,7 +1243,10 @@ class SupersetAdaptor(
         if ds_id is None:
             return None
 
-        return {"id": ds_id, "type": ds_type}
+        ref: Dict[str, Any] = {"id": ds_id, "type": ds_type}
+        if name:
+            ref["name"] = name
+        return ref
 
     def _resolve_tables(self, datasource_ref: Optional[Dict[str, Any]]) -> List[str]:
         if not datasource_ref:
@@ -1720,10 +1746,13 @@ def _normalize_series_columns_in_query(query: Dict[str, Any]) -> None:
     )
 
     if series_names:
+        # Preserve original column objects; only append missing series columns as strings
+        existing_names = set(column_names)
+        merged = list(columns_list)
         for name in series_names:
-            if name not in column_names:
-                column_names.append(name)
-        query["columns"] = column_names
+            if name not in existing_names:
+                merged.append(name)
+        query["columns"] = merged
     elif columns_list:
         query["columns"] = columns_list
 

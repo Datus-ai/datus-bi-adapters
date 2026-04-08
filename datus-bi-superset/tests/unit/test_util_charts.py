@@ -1340,7 +1340,10 @@ class TestRegisterChartBuildQuery:
 
         register_chart_build_query("test_chart_xyz", my_fn)
         registry = get_chart_build_query_registry()
-        assert registry.get("test_chart_xyz") is my_fn
+        try:
+            assert registry.get("test_chart_xyz") is my_fn
+        finally:
+            registry._registry.pop("test_chart_xyz", None)
 
 
 # =============================================================================

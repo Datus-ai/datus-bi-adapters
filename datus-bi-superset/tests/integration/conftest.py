@@ -37,6 +37,10 @@ def _ensure_examples_database(adaptor: "SupersetAdaptor") -> int:
     """
     dbs = adaptor.list_bi_databases()
     if dbs:
+        # Prefer a database matching the expected name; fall back to first
+        for db in dbs:
+            if db.get("name") == _EXAMPLES_DB_NAME:
+                return db["id"]
         return dbs[0]["id"]
 
     # Fallback: create connection pointing to the Docker-internal postgres service
@@ -65,7 +69,7 @@ def superset_adaptor():
     return SupersetAdaptor(
         api_base_url=SUPERSET_URL,
         auth_params=AuthParam(username=SUPERSET_USER, password=SUPERSET_PASS),
-        dialect="sqlite",
+        dialect="postgresql",
     )
 
 

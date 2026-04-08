@@ -125,10 +125,10 @@ class TestGrafanaErrorPaths:
         with pytest.raises(DatusBiException, match="dashboard_id"):
             adaptor.update_chart("panel1", spec)
 
-    def test_delete_chart_raises(self):
+    def test_delete_chart_returns_false(self):
         adaptor = make_adaptor()
-        with pytest.raises(DatusBiException, match="dashboard_id"):
-            adaptor.delete_chart("panel1")
+        result = adaptor.delete_chart("panel1")
+        assert result is False
 
     def test_get_chart_found(self):
         adaptor = make_adaptor()

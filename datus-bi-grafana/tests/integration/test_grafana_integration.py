@@ -155,10 +155,10 @@ class TestGrafanaGetChart:
         with pytest.raises(DatusBiException, match="dashboard_id"):
             grafana_adaptor.update_chart(1, spec)
 
-    def test_delete_chart_raises(self, grafana_adaptor):
-        """Grafana delete_chart always raises because it needs dashboard context."""
-        with pytest.raises(DatusBiException, match="dashboard_id"):
-            grafana_adaptor.delete_chart(1)
+    def test_delete_chart_returns_false(self, grafana_adaptor):
+        """Grafana delete_chart returns False because it needs dashboard context."""
+        result = grafana_adaptor.delete_chart(1)
+        assert result is False
 
 
 class TestGrafanaDatasets:

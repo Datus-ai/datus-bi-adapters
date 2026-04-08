@@ -386,9 +386,8 @@ class GrafanaAdaptor(
         )
 
     def delete_chart(self, chart_id: Union[int, str]) -> bool:
-        raise DatusBiException(
-            "delete_chart requires dashboard_id for Grafana", "grafana"
-        )
+        logger.warning("delete_chart requires dashboard_id for Grafana; returning False")
+        return False
 
     def add_chart_to_dashboard(
         self, dashboard_id: Union[int, str], chart_id: Union[int, str]

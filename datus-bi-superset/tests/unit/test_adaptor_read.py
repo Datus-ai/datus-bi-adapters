@@ -122,11 +122,10 @@ class TestParseDashboardId:
 
     def test_parse_url_with_query_params(self, adaptor):
         """Test parsing URL with query parameters."""
-        # Note: parse_dashboard_id extracts from path segments first,
-        # then falls back to query params. So /dashboard path returns "dashboard"
+        # /dashboard is a route segment, so query params are used as fallback
         url = "http://localhost:8088/dashboard?dashboard_id=456"
         result = adaptor.parse_dashboard_id(url)
-        assert result == "dashboard"  # Extracts from path, not query param
+        assert result == "456"
 
         # URL without path segments will try query params
         url = "http://localhost:8088/?dashboard_id=456"
@@ -844,9 +843,10 @@ class TestHelperFunctions:
 
         _normalize_series_columns_in_query(query)
 
+        # Original dict column objects are preserved, series columns added as strings
+        assert {"column_name": "col3"} in query["columns"]
         assert "col1" in query["columns"]
         assert "col2" in query["columns"]
-        assert "col3" in query["columns"]
 
     def test_normalize_series_columns_in_query_no_series(self):
         """Test _normalize_series_columns_in_query with no series_columns."""

@@ -226,3 +226,95 @@ class TestSupersetErrorPaths:
         with patch.object(adaptor, "_request_json", side_effect=Exception("fail")):
             dbs = adaptor.list_bi_databases()
         assert dbs == []
+
+
+class TestParseDashboardIdEdgeCases:
+    """Tests for parse_dashboard_id — covers #4 route-name bug."""
+
+    def test_url_without_trailing_id_does_not_return_route_name(self):
+        adaptor = make_adaptor()
+        # URL with no actual ID should not return "dashboard" as the ID
+        result = adaptor.parse_dashboard_id(
+            "http://localhost:8088/superset/dashboard/"
+        )
+        # Should return the full stripped URL, not a route segment
+        assert result not in ("dashboard", "superset")
+
+    def test_url_with_slug_after_dashboard(self):
+        adaptor = make_adaptor()
+        result = adaptor.parse_dashboard_id(
+            "http://localhost:8088/superset/dashboard/my-sales-dash/"
+        )
+        assert result == "my-sales-dash"
+
+    def test_url_with_numeric_id(self):
+        adaptor = make_adaptor()
+        result = adaptor.parse_dashboard_id(
+            "http://localhost:8088/superset/dashboard/42/"
+        )
+        assert result == "42"
+
+    def test_url_with_query_param_fallback(self):
+        adaptor = make_adaptor()
+        result = adaptor.parse_dashboard_id(
+            "http://localhost:8088/superset/dashboard/?dashboard_id=99"
+        )
+        assert result == "99"
+
+    def test_empty_string(self):
+        adaptor = make_adaptor()
+        result = adaptor.parse_dashboard_id("")
+        assert result == ""
+
+
+class TestDatasetCacheInvalidation:
+    """Tests for #8 — _dataset_cache cleared on update/delete."""
+
+    def test_update_dataset_clears_cache(self):
+        adaptor = make_adaptor()
+        # Seed cache
+        adaptor._dataset_cache["42"] = "cached_value"
+        mock_data = {"result": {"id": 42, "table_name": "updated"}}
+        with patch.object(adaptor, "_request_json", return_value=mock_data):
+            adaptor.update_dataset(42, DatasetSpec(name="updated", sql="SELECT 1", database_id=1))
+        assert "42" not in adaptor._dataset_cache
+
+    def test_delete_dataset_clears_cache(self):
+        adaptor = make_adaptor()
+        adaptor._dataset_cache["42"] = "cached_value"
+        with patch.object(adaptor, "_request_json", return_value={}):
+            adaptor.delete_dataset(42)
+        assert "42" not in adaptor._dataset_cache
+
+
+class TestAddChartToDashboardIdempotent:
+    """Tests for #7 — add_chart_to_dashboard is idempotent."""
+
+    def test_adding_same_chart_twice_is_idempotent(self):
+        adaptor = make_adaptor()
+        position_with_chart = {
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW-abc"], "parents": ["ROOT_ID"]},
+            "ROW-abc": {"type": "ROW", "id": "ROW-abc", "children": ["CHART-5"], "parents": ["ROOT_ID", "GRID_ID"]},
+            "CHART-5": {"type": "CHART", "id": "CHART-5", "children": [], "parents": ["ROOT_ID", "GRID_ID", "ROW-abc"]},
+        }
+        import json
+        mock_dash = {"result": {"position_data": json.dumps(position_with_chart)}}
+        with patch.object(adaptor, "_request_json", return_value=mock_dash) as mock_req:
+            result = adaptor.add_chart_to_dashboard(1, 5)
+        assert result is True
+        # Should NOT have called PUT since chart is already present
+        for call in mock_req.call_args_list:
+            assert call[0][0] != "PUT"
+
+
+class TestChartSpecDatasetIdType:
+    """Tests for #11 — dataset_id accepts both int and str."""
+
+    def test_dataset_id_accepts_string(self):
+        spec = ChartSpec(chart_type="bar", title="Test", dataset_id="grafana-uid-123")
+        assert spec.dataset_id == "grafana-uid-123"
+
+    def test_dataset_id_accepts_int(self):
+        spec = ChartSpec(chart_type="bar", title="Test", dataset_id=42)
+        assert spec.dataset_id == 42

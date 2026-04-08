@@ -113,7 +113,7 @@ class ChartSpec(BaseModel):
     chart_type: str  # "bar"|"line"|"pie"|"table"|"big_number"|"scatter"
     title: str
     description: str = ""
-    dataset_id: Optional[int] = None
+    dataset_id: Optional[Union[int, str]] = None
     sql: Optional[str] = None
     x_axis: Optional[str] = None
     metrics: Optional[List[str]] = None

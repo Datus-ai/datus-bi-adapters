@@ -24,7 +24,7 @@ services:
       start_period: 15s
 
   superset:
-    image: apache/superset:latest
+    image: apache/superset:${SUPERSET_IMAGE_TAG:-4.1.2}
     container_name: datus_test_superset
     depends_on:
       postgres:
