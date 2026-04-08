@@ -17,7 +17,6 @@ from datus_bi_core import (
     ChartWriteMixin,
     DashboardWriteMixin,
     DatasetWriteMixin,
-    ListDashboardsMixin,
 )
 from datus_bi_core.models import (
     AuthParam,
@@ -127,7 +126,6 @@ _CHART_TYPE_MAP = {
 
 class SupersetAdapter(
     BIAdapterBase,
-    ListDashboardsMixin,
     DashboardWriteMixin,
     ChartWriteMixin,
     DatasetWriteMixin,
@@ -558,7 +556,7 @@ class SupersetAdapter(
 
 
     # =========================================================================
-    # ListDashboardsMixin
+    # BIAdapterBase — list_dashboards
     # =========================================================================
 
     def list_dashboards(
@@ -931,28 +929,6 @@ class SupersetAdapter(
         dataset_id = data.get("id") or result.get("id", 0)
         return DatasetInfo(
             id=dataset_id,
-            name=spec.name,
-            dialect=self.dialect,
-            description=spec.description,
-        )
-
-    def update_dataset(
-        self, dataset_id: Union[int, str], spec: DatasetSpec
-    ) -> DatasetInfo:
-        payload = {
-            k: v
-            for k, v in {
-                "sql": spec.sql,
-                "description": spec.description,
-                "table_name": spec.name,
-            }.items()
-            if v
-        }
-        data = self._request_json("PUT", f"dataset/{dataset_id}", json=payload)
-        result = data.get("result", data)
-        self._dataset_cache.pop(str(dataset_id), None)
-        return DatasetInfo(
-            id=result.get("id", dataset_id),
             name=spec.name,
             dialect=self.dialect,
             description=spec.description,

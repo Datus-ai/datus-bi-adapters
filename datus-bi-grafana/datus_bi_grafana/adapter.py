@@ -13,7 +13,6 @@ from datus_bi_core import (
     ChartWriteMixin,
     DashboardWriteMixin,
     DatusBiException,
-    ListDashboardsMixin,
 )
 from datus_bi_core.models import (
     AuthParam,
@@ -38,7 +37,7 @@ _PANEL_TYPE_MAP = {
 
 
 class GrafanaAdapter(
-    BIAdapterBase, ListDashboardsMixin, DashboardWriteMixin, ChartWriteMixin
+    BIAdapterBase, DashboardWriteMixin, ChartWriteMixin
 ):
     """Grafana BI adapter — supports basic auth (username/password) or Bearer token."""
 
@@ -199,7 +198,7 @@ class GrafanaAdapter(
             logger.warning(f"get_dataset failed for {dataset_id}: {exc}")
             return None
 
-    # --- ListDashboardsMixin ---
+    # --- BIAdapterBase — list_dashboards ---
 
     def list_dashboards(
         self, search: str = "", page_size: int = 20

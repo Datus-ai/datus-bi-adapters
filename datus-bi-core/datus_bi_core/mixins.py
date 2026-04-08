@@ -17,13 +17,6 @@ from datus_bi_core.models import (
 )
 
 
-class ListDashboardsMixin(ABC):
-    @abstractmethod
-    def list_dashboards(
-        self, search: str = "", page_size: int = 20
-    ) -> List[DashboardInfo]: ...
-
-
 class DashboardWriteMixin(ABC):
     @abstractmethod
     def create_dashboard(self, spec: DashboardSpec) -> DashboardInfo: ...
@@ -58,11 +51,6 @@ class ChartWriteMixin(ABC):
 class DatasetWriteMixin(ABC):
     @abstractmethod
     def create_dataset(self, spec: DatasetSpec) -> DatasetInfo: ...
-
-    @abstractmethod
-    def update_dataset(
-        self, dataset_id: Union[int, str], spec: DatasetSpec
-    ) -> DatasetInfo: ...
 
     @abstractmethod
     def delete_dataset(self, dataset_id: Union[int, str]) -> bool: ...

@@ -8,7 +8,6 @@ from datus_bi_core.mixins import (
     ChartWriteMixin,
     DashboardWriteMixin,
     DatasetWriteMixin,
-    ListDashboardsMixin,
 )
 from datus_bi_core.models import (
     AuthParam,
@@ -31,7 +30,6 @@ __all__ = [
     "DatusBiException",
     "BIAdapterRegistry",
     "adapter_registry",
-    "ListDashboardsMixin",
     "DashboardWriteMixin",
     "ChartWriteMixin",
     "DatasetWriteMixin",
