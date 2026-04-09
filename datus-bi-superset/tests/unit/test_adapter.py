@@ -7,7 +7,7 @@ from datus_bi_superset.adapter import SupersetAdapter
 
 
 def make_adapter():
-    auth = AuthParam(username="admin", password="admin")
+    auth = AuthParam(username="admin", password="admin")  # noqa: S106
     return SupersetAdapter(
         api_base_url="http://localhost:8088", auth_params=auth, dialect="postgresql"
     )

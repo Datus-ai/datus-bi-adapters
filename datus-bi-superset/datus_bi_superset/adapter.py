@@ -186,17 +186,18 @@ class SupersetAdapter(
                 if seg.lower() in _DASHBOARD_ROUTE_KEYS and i + 1 < len(segments):
                     return segments[i + 1]
 
-            # Fall back to last non-route segment
-            _ROUTE_SEGMENTS = {"superset", "api", "v1", "explore", "chart"} | _DASHBOARD_ROUTE_KEYS
-            for segment in reversed(segments):
-                if segment.lower() not in _ROUTE_SEGMENTS:
-                    return segment
-
+            # Check query parameters before falling back to path segments
             query_params = parse_qs(parsed.query)
             for key in ("dashboard_id", "id"):
                 values = query_params.get(key)
                 if values:
                     return values[0]
+
+            # Fall back to last non-route segment
+            _ROUTE_SEGMENTS = {"superset", "api", "v1", "explore", "chart"} | _DASHBOARD_ROUTE_KEYS
+            for segment in reversed(segments):
+                if segment.lower() not in _ROUTE_SEGMENTS:
+                    return segment
 
         return stripped
 
@@ -929,6 +930,28 @@ class SupersetAdapter(
         dataset_id = data.get("id") or result.get("id", 0)
         return DatasetInfo(
             id=dataset_id,
+            name=spec.name,
+            dialect=self.dialect,
+            description=spec.description,
+        )
+
+    def update_dataset(
+        self, dataset_id: Union[int, str], spec: DatasetSpec
+    ) -> DatasetInfo:
+        payload = {
+            k: v
+            for k, v in {
+                "sql": spec.sql,
+                "description": spec.description,
+                "table_name": spec.name,
+            }.items()
+            if v
+        }
+        data = self._request_json("PUT", f"dataset/{dataset_id}", json=payload)
+        result = data.get("result", data)
+        self._dataset_cache.pop(str(dataset_id), None)
+        return DatasetInfo(
+            id=result.get("id", dataset_id),
             name=spec.name,
             dialect=self.dialect,
             description=spec.description,
