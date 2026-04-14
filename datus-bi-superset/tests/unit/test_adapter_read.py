@@ -231,7 +231,9 @@ class TestGetDashboardInfo:
     def test_get_dashboard_info_error(self, adapter, mock_client):
         """Test dashboard info retrieval with error."""
         mock_client.request.side_effect = httpx.HTTPStatusError(
-            "Not found", request=MagicMock(), response=MagicMock(status_code=404, text="Not found")
+            "Not found",
+            request=MagicMock(),
+            response=MagicMock(status_code=404, text="Not found"),
         )
 
         with pytest.raises(SupersetAdapterError) as exc_info:
@@ -429,7 +431,11 @@ class TestGetChart:
         mock_client.request.return_value = mock_response
 
         # Mock SQL collection
-        with patch.object(adapter, "_collect_sql_from_chart", return_value=(["SELECT * FROM test"], {0})):
+        with patch.object(
+            adapter,
+            "_collect_sql_from_chart",
+            return_value=(["SELECT * FROM test"], {0}),
+        ):
             chart = adapter.get_chart(1, 123)
 
         assert chart is not None
@@ -636,7 +642,9 @@ class TestMetricsAndDimensions:
         """Test deduplication of metrics."""
         metrics = [
             MetricDef(name="count", expression="COUNT(*)", origin="chart"),
-            MetricDef(name="count", expression="COUNT(*)", origin="dataset"),  # Duplicate
+            MetricDef(
+                name="count", expression="COUNT(*)", origin="dataset"
+            ),  # Duplicate
             MetricDef(name="sum", expression="SUM(amount)", origin="chart"),
         ]
 
@@ -917,7 +925,9 @@ class TestDataExtraction:
         form_data = {"datasource": "200__table"}
 
         # query_context should take priority
-        ref = adapter._extract_datasource_ref(query_context=query_context, form_data=form_data)
+        ref = adapter._extract_datasource_ref(
+            query_context=query_context, form_data=form_data
+        )
 
         assert ref["id"] == 100
 
@@ -1034,18 +1044,31 @@ class TestEdgeCases:
         assert desc == "Detail desc"
 
         # From description_markeddown
-        desc = adapter._chart_description(None, {"description_markeddown": "Markdown desc"})
+        desc = adapter._chart_description(
+            None, {"description_markeddown": "Markdown desc"}
+        )
         assert desc == "Markdown desc"
 
         # Priority: chart_meta over chart_detail
-        desc = adapter._chart_description({"description": "Meta"}, {"description": "Detail"})
+        desc = adapter._chart_description(
+            {"description": "Meta"}, {"description": "Detail"}
+        )
         assert desc == "Meta"
 
     def test_normalize_api_base(self, adapter):
         """Test API base URL normalization."""
-        assert adapter._normalize_api_base("http://localhost:8088") == "http://localhost:8088/api/v1"
-        assert adapter._normalize_api_base("http://localhost:8088/api/v1") == "http://localhost:8088/api/v1"
-        assert adapter._normalize_api_base("http://localhost:8088/api/v1/") == "http://localhost:8088/api/v1"
+        assert (
+            adapter._normalize_api_base("http://localhost:8088")
+            == "http://localhost:8088/api/v1"
+        )
+        assert (
+            adapter._normalize_api_base("http://localhost:8088/api/v1")
+            == "http://localhost:8088/api/v1"
+        )
+        assert (
+            adapter._normalize_api_base("http://localhost:8088/api/v1/")
+            == "http://localhost:8088/api/v1"
+        )
 
     def test_parse_dataset_columns(self, adapter):
         """Test parsing dataset columns."""

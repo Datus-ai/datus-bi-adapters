@@ -137,7 +137,14 @@ class TestBuildBoxplotQuery:
         result = build_boxplot_query(q, form)
         # date should be transformed to a dict with timeGrain
         cols = result[0].columns
-        date_col = next((c for c in cols if isinstance(c, dict) and c.get("sqlExpression") == "date"), None)
+        date_col = next(
+            (
+                c
+                for c in cols
+                if isinstance(c, dict) and c.get("sqlExpression") == "date"
+            ),
+            None,
+        )
         assert date_col is not None
         assert date_col["timeGrain"] == "P1D"
 
@@ -166,7 +173,11 @@ class TestBuildTableQuery:
 
     def test_sort_by_timeseries_limit_metric(self):
         q = _base_query(columns=["region"], metrics=["count"], orderby=[])
-        form = {"query_mode": "aggregate", "timeseries_limit_metric": "revenue", "order_desc": True}
+        form = {
+            "query_mode": "aggregate",
+            "timeseries_limit_metric": "revenue",
+            "order_desc": True,
+        }
         result = build_table_query(q, form)
         assert result[0].orderby == [("revenue", False)]
 
@@ -189,13 +200,17 @@ class TestBuildTableQuery:
         assert "revenue" in result[0].metrics
 
     def test_time_compare_adds_time_offsets(self):
-        q = _base_query(columns=["region"], metrics=["count"], orderby=[], time_range="last week")
+        q = _base_query(
+            columns=["region"], metrics=["count"], orderby=[], time_range="last week"
+        )
         form = {"query_mode": "aggregate", "time_compare": ["1 year ago"]}
         result = build_table_query(q, form)
         assert result[0].time_offsets == ["1 year ago"]
 
     def test_custom_time_compare_with_start_offset(self):
-        q = _base_query(columns=["region"], metrics=["count"], orderby=[], time_range="last week")
+        q = _base_query(
+            columns=["region"], metrics=["count"], orderby=[], time_range="last week"
+        )
         form = {
             "query_mode": "aggregate",
             "time_compare": ["custom"],
@@ -205,7 +220,9 @@ class TestBuildTableQuery:
         assert "2023-01-01" in result[0].time_offsets
 
     def test_inherit_time_compare(self):
-        q = _base_query(columns=["region"], metrics=["count"], orderby=[], time_range="last week")
+        q = _base_query(
+            columns=["region"], metrics=["count"], orderby=[], time_range="last week"
+        )
         form = {"query_mode": "aggregate", "time_compare": ["inherit"]}
         result = build_table_query(q, form)
         assert "inherit" in result[0].time_offsets
@@ -219,7 +236,14 @@ class TestBuildTableQuery:
         }
         result = build_table_query(q, form)
         cols = result[0].columns
-        date_col = next((c for c in cols if isinstance(c, dict) and c.get("sqlExpression") == "date"), None)
+        date_col = next(
+            (
+                c
+                for c in cols
+                if isinstance(c, dict) and c.get("sqlExpression") == "date"
+            ),
+            None,
+        )
         assert date_col is not None
         assert date_col["columnType"] == "BASE_AXIS"
 
@@ -264,7 +288,15 @@ class TestBuildBigNumberTrendlineQuery:
         assert result[0].post_processing == []
 
     def test_dict_metric_label(self):
-        q = _base_query(metrics=[{"label": "Revenue", "aggregate": "SUM", "column": {"column_name": "rev"}}])
+        q = _base_query(
+            metrics=[
+                {
+                    "label": "Revenue",
+                    "aggregate": "SUM",
+                    "column": {"column_name": "rev"},
+                }
+            ]
+        )
         result = build_big_number_trendline_query(q, {})
         pivot = next(p for p in result[0].post_processing if p["operation"] == "pivot")
         assert "Revenue" in pivot["options"]["aggregates"]
@@ -676,14 +708,23 @@ class TestBuildPivotTableQuery:
         }
         result = build_pivot_table_query(q, form)
         date_col = next(
-            (c for c in result[0].columns if isinstance(c, dict) and c.get("sqlExpression") == "date"), None
+            (
+                c
+                for c in result[0].columns
+                if isinstance(c, dict) and c.get("sqlExpression") == "date"
+            ),
+            None,
         )
         assert date_col is not None
         assert date_col["timeGrain"] == "P1M"
 
     def test_series_limit_metric_orderby(self):
         q = _base_query(metrics=["count"])
-        form = {"groupbyColumns": [], "groupbyRows": [], "series_limit_metric": "revenue"}
+        form = {
+            "groupbyColumns": [],
+            "groupbyRows": [],
+            "series_limit_metric": "revenue",
+        }
         result = build_pivot_table_query(q, form)
         assert result[0].orderby[0][0] == "revenue"
 
@@ -759,7 +800,12 @@ class TestBuildGanttQuery:
 
     def test_series_columns_set(self):
         q = _base_query()
-        form = {"start_time": "start", "end_time": "end", "y_axis": "task", "series": "group"}
+        form = {
+            "start_time": "start",
+            "end_time": "end",
+            "y_axis": "task",
+            "series": "group",
+        }
         result = build_gantt_query(q, form)
         assert "group" in result[0].columns
         assert "group" in result[0].series_columns
@@ -802,7 +848,9 @@ class TestBuildGanttQuery:
 class TestBuildPopKpiQuery:
     def test_cols_set_as_columns(self):
         q = _base_query(metrics=["count"], time_range="last week")
-        result = build_pop_kpi_query(q, {"cols": ["region"], "time_compare": ["1 year ago"]})
+        result = build_pop_kpi_query(
+            q, {"cols": ["region"], "time_compare": ["1 year ago"]}
+        )
         assert result[0].columns == ["region"]
 
     def test_time_offsets_non_custom(self):
@@ -814,7 +862,11 @@ class TestBuildPopKpiQuery:
 
     def test_custom_time_compare(self):
         q = _base_query(metrics=["count"], time_range="last week")
-        form = {"cols": [], "time_compare": ["custom"], "start_date_offset": "2023-01-01"}
+        form = {
+            "cols": [],
+            "time_compare": ["custom"],
+            "start_date_offset": "2023-01-01",
+        }
         result = build_pop_kpi_query(q, form)
         assert "2023-01-01" in result[0].time_offsets
 
@@ -872,7 +924,13 @@ class TestBuildTimeseriesQueryDirect:
 class TestBuildLegacyBubbleQuery:
     def test_entity_series_as_columns(self):
         q = _base_query()
-        form = {"entity": "country", "series": "category", "x": "price", "y": "sales", "size": "count"}
+        form = {
+            "entity": "country",
+            "series": "category",
+            "x": "price",
+            "y": "sales",
+            "size": "count",
+        }
         result = build_legacy_bubble_query(q, form)
         assert "country" in result[0].columns
         assert "category" in result[0].columns
@@ -895,7 +953,9 @@ class TestBuildLegacyBubbleQuery:
 
     def test_entity_only_no_series_dedup(self):
         q = _base_query()
-        result = build_legacy_bubble_query(q, {"entity": "country", "series": "country"})
+        result = build_legacy_bubble_query(
+            q, {"entity": "country", "series": "country"}
+        )
         assert result[0].columns == ["country"]
 
 
@@ -967,7 +1027,9 @@ class TestBuildLegacyChordQuery:
 class TestBuildLegacyCountryMapQuery:
     def test_sets_entity_and_metric(self):
         q = _base_query()
-        result = build_legacy_country_map_query(q, {"entity": "country", "metric": "count"})
+        result = build_legacy_country_map_query(
+            q, {"entity": "country", "metric": "count"}
+        )
         assert result[0].columns == ["country"]
         assert result[0].metrics == ["count"]
 
@@ -985,7 +1047,9 @@ class TestBuildLegacyWorldMapQuery:
 
     def test_sort_by_metric(self):
         q = _base_query(metrics=["count"])
-        result = build_legacy_world_map_query(q, {"entity": "country", "sort_by_metric": True})
+        result = build_legacy_world_map_query(
+            q, {"entity": "country", "sort_by_metric": True}
+        )
         assert result[0].orderby == [("count", False)]
 
     def test_is_not_timeseries(self):
@@ -1030,7 +1094,11 @@ class TestBuildLegacyMapboxQuery:
 
     def test_count_label_not_included(self):
         q = _base_query()
-        form = {"all_columns_x": "lon", "all_columns_y": "lat", "mapbox_label": ["count"]}
+        form = {
+            "all_columns_x": "lon",
+            "all_columns_y": "lat",
+            "mapbox_label": ["count"],
+        }
         result = build_legacy_mapbox_query(q, form)
         assert "count" not in result[0].columns
 
@@ -1063,7 +1131,9 @@ class TestBuildLegacyCalHeatmapQuery:
             ("year", "P1Y"),
         ]:
             q2 = _base_query()
-            result = build_legacy_cal_heatmap_query(q2, {"subdomain_granularity": subdomain})
+            result = build_legacy_cal_heatmap_query(
+                q2, {"subdomain_granularity": subdomain}
+            )
             assert result[0].extras["time_grain_sqla"] == expected
 
     def test_default_subdomain_is_pt1m(self):
@@ -1148,8 +1218,16 @@ class TestBuildDeckArcQuery:
     def test_spatial_columns_extracted(self):
         q = _base_query()
         form = {
-            "start_spatial": {"type": "latlong", "latCol": "start_lat", "lonCol": "start_lon"},
-            "end_spatial": {"type": "latlong", "latCol": "end_lat", "lonCol": "end_lon"},
+            "start_spatial": {
+                "type": "latlong",
+                "latCol": "start_lat",
+                "lonCol": "start_lon",
+            },
+            "end_spatial": {
+                "type": "latlong",
+                "latCol": "end_lat",
+                "lonCol": "end_lon",
+            },
         }
         result = build_deck_arc_query(q, form)
         cols = result[0].columns
@@ -1304,13 +1382,21 @@ class TestChartBuildQueryRegistry:
         assert ChartBuildQueryRegistry().get("pie") is build_pie_query
 
     def test_big_number_total_registered(self):
-        assert ChartBuildQueryRegistry().get("big_number_total") is build_big_number_query
+        assert (
+            ChartBuildQueryRegistry().get("big_number_total") is build_big_number_query
+        )
 
     def test_big_number_trendline_registered(self):
-        assert ChartBuildQueryRegistry().get("big_number") is build_big_number_trendline_query
+        assert (
+            ChartBuildQueryRegistry().get("big_number")
+            is build_big_number_trendline_query
+        )
 
     def test_mixed_timeseries_registered(self):
-        assert ChartBuildQueryRegistry().get("mixed_timeseries") is build_mixed_timeseries_query
+        assert (
+            ChartBuildQueryRegistry().get("mixed_timeseries")
+            is build_mixed_timeseries_query
+        )
 
     def test_legacy_bubble_registered(self):
         assert ChartBuildQueryRegistry().get("bubble") is build_legacy_bubble_query
@@ -1426,7 +1512,12 @@ class TestBuildQueryContext:
         assert result["result_type"] == "query"
 
     def test_force_field_passed(self):
-        form_data = {"datasource": "1__table", "viz_type": "bar", "metrics": ["count"], "force": True}
+        form_data = {
+            "datasource": "1__table",
+            "viz_type": "bar",
+            "metrics": ["count"],
+            "force": True,
+        }
         result = build_query_context(form_data)
         assert result["force"] is True
 

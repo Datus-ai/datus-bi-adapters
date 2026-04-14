@@ -86,8 +86,18 @@ def grafana_api_token():
 
 @pytest.fixture(scope="session")
 def grafana_adapter(grafana_api_token):
-    return GrafanaAdapter(
+    adapter = GrafanaAdapter(
         api_base_url=GRAFANA_URL,
         auth_params=AuthParam(api_key=grafana_api_token),
         dialect="postgres",
     )
+    # Ensure a test datasource exists so datasource-related tests don't skip
+    adapter.find_or_create_datasource(
+        name="datus-test-postgres",
+        db_type="grafana-postgresql-datasource",
+        url="postgres:5432",
+        user="grafana",
+        password="grafana",
+        database="grafana_data",
+    )
+    return adapter

@@ -36,9 +36,7 @@ _PANEL_TYPE_MAP = {
 }
 
 
-class GrafanaAdapter(
-    BIAdapterBase, DashboardWriteMixin, ChartWriteMixin
-):
+class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
     """Grafana BI adapter — supports basic auth (username/password) or Bearer token."""
 
     def __init__(
@@ -318,23 +316,31 @@ class GrafanaAdapter(
         for ds in sources:
             if ds.get("name") == name:
                 return ds
-        return self.create_datasource(name, db_type, url, user, password, database, extra_json_data)
+        return self.create_datasource(
+            name, db_type, url, user, password, database, extra_json_data
+        )
 
     # --- ChartWriteMixin ---
 
     def _build_panel(self, spec: ChartSpec, panel_id: int) -> Dict[str, Any]:
         panel_type = _PANEL_TYPE_MAP.get(spec.chart_type, "timeseries")
         datasource_uid: Optional[str] = spec.extra.get("datasource_uid")
-        datasource_type: str = spec.extra.get("datasource_type", "grafana-postgresql-datasource")
+        datasource_type: str = spec.extra.get(
+            "datasource_type", "grafana-postgresql-datasource"
+        )
 
         # Fall back to dataset_id: look up datasource uid by numeric ID
         if not datasource_uid and spec.dataset_id is not None:
             try:
-                ds_data = self._request_json("GET", f"/api/datasources/{spec.dataset_id}")
+                ds_data = self._request_json(
+                    "GET", f"/api/datasources/{spec.dataset_id}"
+                )
                 datasource_uid = ds_data.get("uid")
                 datasource_type = ds_data.get("type", datasource_type)
             except Exception as exc:
-                logger.warning(f"Failed to resolve dataset_id {spec.dataset_id} to datasource: {exc}")
+                logger.warning(
+                    f"Failed to resolve dataset_id {spec.dataset_id} to datasource: {exc}"
+                )
 
         ds_ref: Optional[Dict[str, str]] = None
         if datasource_uid:
@@ -353,13 +359,21 @@ class GrafanaAdapter(
             panel["datasource"] = ds_ref
 
         if spec.sql:
-            target: Dict[str, Any] = {"rawSql": spec.sql, "refId": "A", "format": "table"}
+            target: Dict[str, Any] = {
+                "rawSql": spec.sql,
+                "refId": "A",
+                "format": "table",
+            }
             if ds_ref:
                 target["datasource"] = ds_ref
             panel["targets"] = [target]
 
         # Copy extra except internal keys already consumed
-        extra = {k: v for k, v in spec.extra.items() if k not in ("datasource_uid", "datasource_type")}
+        extra = {
+            k: v
+            for k, v in spec.extra.items()
+            if k not in ("datasource_uid", "datasource_type")
+        }
         panel.update(extra)
         return panel
 
@@ -373,10 +387,19 @@ class GrafanaAdapter(
         data = self._request_json("GET", f"/api/dashboards/uid/{dashboard_id}")
         dash = data.get("dashboard", {})
         panels = dash.get("panels", [])
-        new_id = max((p.get("id", 0) for p in panels if isinstance(p.get("id"), int)), default=0) + 1
+        new_id = (
+            max(
+                (p.get("id", 0) for p in panels if isinstance(p.get("id"), int)),
+                default=0,
+            )
+            + 1
+        )
         # Stack below existing panels to avoid overlap
         max_y = max(
-            (p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0) for p in panels),
+            (
+                p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0)
+                for p in panels
+            ),
             default=0,
         )
         panel = self._build_panel(spec, new_id)
@@ -400,7 +423,9 @@ class GrafanaAdapter(
         )
 
     def delete_chart(self, chart_id: Union[int, str]) -> bool:
-        logger.warning("delete_chart requires dashboard_id for Grafana; returning False")
+        logger.warning(
+            "delete_chart requires dashboard_id for Grafana; returning False"
+        )
         return False
 
     def add_chart_to_dashboard(

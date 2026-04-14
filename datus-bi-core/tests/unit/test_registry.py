@@ -57,9 +57,7 @@ def test_list_adapters():
         BIAdapterRegistry._initialized = True
         BIAdapterRegistry._adapters = {}
         BIAdapterRegistry._metadata = {}
-        BIAdapterRegistry.register(
-            "mock_list", MockAdapter, auth_type=AuthType.LOGIN
-        )
+        BIAdapterRegistry.register("mock_list", MockAdapter, auth_type=AuthType.LOGIN)
         all_adapters = BIAdapterRegistry.list_adapters()
         assert "mock_list" in all_adapters
         assert all_adapters["mock_list"] is MockAdapter
@@ -77,9 +75,7 @@ def test_is_registered():
         BIAdapterRegistry._initialized = True
         BIAdapterRegistry._adapters = {}
         BIAdapterRegistry._metadata = {}
-        BIAdapterRegistry.register(
-            "mock_check", MockAdapter, auth_type=AuthType.LOGIN
-        )
+        BIAdapterRegistry.register("mock_check", MockAdapter, auth_type=AuthType.LOGIN)
         assert BIAdapterRegistry.is_registered("mock_check") is True
         assert BIAdapterRegistry.is_registered("nonexistent") is False
     finally:

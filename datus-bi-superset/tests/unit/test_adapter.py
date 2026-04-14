@@ -90,7 +90,9 @@ class TestSupersetWriteOperations:
             ("big_number", "big_number_total", True),
         ],
     )
-    def test_build_form_data_all_chart_types(self, chart_type, expected_viz, uses_singular_metric):
+    def test_build_form_data_all_chart_types(
+        self, chart_type, expected_viz, uses_singular_metric
+    ):
         """Each chart type produces valid Superset params with correct metric key."""
         adapter = make_adapter()
         spec = ChartSpec(
@@ -104,7 +106,9 @@ class TestSupersetWriteOperations:
         assert form_data["datasource"] == "1__table"
         if uses_singular_metric:
             assert "metric" in form_data, f"{chart_type} should use singular 'metric'"
-            assert "metrics" not in form_data, f"{chart_type} should not have 'metrics' array"
+            assert "metrics" not in form_data, (
+                f"{chart_type} should not have 'metrics' array"
+            )
             assert form_data["metric"]["expressionType"] == "SIMPLE"
         else:
             assert "metrics" in form_data, f"{chart_type} should use 'metrics' array"
@@ -195,7 +199,9 @@ class TestSupersetErrorPaths:
         adapter = make_adapter()
         with patch.object(adapter, "get_dashboard_info", return_value=None):
             with pytest.raises(Exception, match="not found"):
-                adapter.get_dashboard_base_info("http://localhost:8088/superset/dashboard/999/")
+                adapter.get_dashboard_base_info(
+                    "http://localhost:8088/superset/dashboard/999/"
+                )
 
     def test_delete_dashboard_failure(self):
         adapter = make_adapter()
@@ -234,9 +240,7 @@ class TestParseDashboardIdEdgeCases:
     def test_url_without_trailing_id_does_not_return_route_name(self):
         adapter = make_adapter()
         # URL with no actual ID should not return "dashboard" as the ID
-        result = adapter.parse_dashboard_id(
-            "http://localhost:8088/superset/dashboard/"
-        )
+        result = adapter.parse_dashboard_id("http://localhost:8088/superset/dashboard/")
         # Should return the full stripped URL, not a route segment
         assert result not in ("dashboard", "superset")
 
@@ -276,7 +280,9 @@ class TestDatasetCacheInvalidation:
         adapter._dataset_cache["42"] = "cached_value"
         mock_data = {"result": {"id": 42, "table_name": "updated"}}
         with patch.object(adapter, "_request_json", return_value=mock_data):
-            adapter.update_dataset(42, DatasetSpec(name="updated", sql="SELECT 1", database_id=1))
+            adapter.update_dataset(
+                42, DatasetSpec(name="updated", sql="SELECT 1", database_id=1)
+            )
         assert "42" not in adapter._dataset_cache
 
     def test_delete_dataset_clears_cache(self):
@@ -294,11 +300,27 @@ class TestAddChartToDashboardIdempotent:
         adapter = make_adapter()
         position_with_chart = {
             "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
-            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW-abc"], "parents": ["ROOT_ID"]},
-            "ROW-abc": {"type": "ROW", "id": "ROW-abc", "children": ["CHART-5"], "parents": ["ROOT_ID", "GRID_ID"]},
-            "CHART-5": {"type": "CHART", "id": "CHART-5", "children": [], "parents": ["ROOT_ID", "GRID_ID", "ROW-abc"]},
+            "GRID_ID": {
+                "type": "GRID",
+                "id": "GRID_ID",
+                "children": ["ROW-abc"],
+                "parents": ["ROOT_ID"],
+            },
+            "ROW-abc": {
+                "type": "ROW",
+                "id": "ROW-abc",
+                "children": ["CHART-5"],
+                "parents": ["ROOT_ID", "GRID_ID"],
+            },
+            "CHART-5": {
+                "type": "CHART",
+                "id": "CHART-5",
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID", "ROW-abc"],
+            },
         }
         import json
+
         mock_dash = {"result": {"position_data": json.dumps(position_with_chart)}}
         with patch.object(adapter, "_request_json", return_value=mock_dash) as mock_req:
             result = adapter.add_chart_to_dashboard(1, 5)

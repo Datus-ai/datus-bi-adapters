@@ -125,7 +125,9 @@ class TestGrafanaGetChart:
                 title="[Datus-Test] Bar Panel",
                 description="A test bar panel",
             )
-            created = grafana_adapter.create_chart(chart_spec, dashboard_id=dashboard.id)
+            created = grafana_adapter.create_chart(
+                chart_spec, dashboard_id=dashboard.id
+            )
 
             chart = grafana_adapter.get_chart(created.id, dashboard_id=dashboard.id)
             assert chart is not None

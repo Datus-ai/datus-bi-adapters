@@ -16,6 +16,7 @@ from datus_bi_core import (
     BIAdapterBase,
     ChartWriteMixin,
     DashboardWriteMixin,
+    DatusBiException,
     DatasetWriteMixin,
 )
 from datus_bi_core.models import (
@@ -110,8 +111,11 @@ def _extract_table_names(
     return table_names
 
 
-class SupersetAdapterError(RuntimeError):
+class SupersetAdapterError(DatusBiException):
     """Errors raised by the Superset adapter."""
+
+    def __init__(self, message: str):
+        super().__init__(message, platform="superset")
 
 
 _CHART_TYPE_MAP = {
@@ -152,15 +156,12 @@ class SupersetAdapter(
             verify=self.api_base_url.startswith("https://"),
             follow_redirects=True,
         )
-        self._owns_client = True
-
         self._auth_header_value: Optional[Dict[str, str]] = None
         self._token_expiration: Optional[float] = None
         self._dataset_cache: Dict[str, DatasetInfo] = {}
 
     def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
+        self._client.close()
 
     def platform_name(self) -> str:
         return "superset"
@@ -194,7 +195,13 @@ class SupersetAdapter(
                     return values[0]
 
             # Fall back to last non-route segment
-            _ROUTE_SEGMENTS = {"superset", "api", "v1", "explore", "chart"} | _DASHBOARD_ROUTE_KEYS
+            _ROUTE_SEGMENTS = {
+                "superset",
+                "api",
+                "v1",
+                "explore",
+                "chart",
+            } | _DASHBOARD_ROUTE_KEYS
             for segment in reversed(segments):
                 if segment.lower() not in _ROUTE_SEGMENTS:
                     return segment
@@ -279,7 +286,9 @@ class SupersetAdapter(
                     or str(chart_id),
                     description=self._chart_description(chart_meta, chart_detail=None),
                     chart_type=chart_meta.get("viz_type")
-                    or (_load_json_field(chart_meta.get("form_data")) or {}).get("viz_type"),
+                    or (_load_json_field(chart_meta.get("form_data")) or {}).get(
+                        "viz_type"
+                    ),
                 )
             )
         return results
@@ -555,7 +564,6 @@ class SupersetAdapter(
         self._dataset_cache[cache_key] = dataset_info
         return dataset_info
 
-
     # =========================================================================
     # BIAdapterBase — list_dashboards
     # =========================================================================
@@ -646,9 +654,11 @@ class SupersetAdapter(
           - "COUNT(column_name)"   → COUNT(column_name)
           - "COUNT(*)"             → COUNT(*)
         """
-        import re
-
-        m = re.match(r"^(SUM|AVG|MAX|MIN|COUNT|COUNT_DISTINCT)\((.+)\)$", metric.strip(), re.IGNORECASE)
+        m = re.match(
+            r"^(SUM|AVG|MAX|MIN|COUNT|COUNT_DISTINCT)\((.+)\)$",
+            metric.strip(),
+            re.IGNORECASE,
+        )
         if m:
             agg = m.group(1).upper()
             col = m.group(2).strip()
@@ -762,14 +772,18 @@ class SupersetAdapter(
                     if dash_id is not None:
                         self._remove_chart_from_position(dash_id, chart_id)
             except Exception as exc:
-                logger.debug(f"Could not clean dashboard references for chart {chart_id}: {exc}")
+                logger.debug(
+                    f"Could not clean dashboard references for chart {chart_id}: {exc}"
+                )
 
             self._request_json("DELETE", f"chart/{chart_id}")
             return True
         except Exception:
             return False
 
-    def _remove_chart_from_position(self, dashboard_id: Union[int, str], chart_id: Union[int, str]) -> None:
+    def _remove_chart_from_position(
+        self, dashboard_id: Union[int, str], chart_id: Union[int, str]
+    ) -> None:
         """Remove a chart and its parent ROW from a dashboard's position_json."""
         try:
             data = self._request_json("GET", f"dashboard/{dashboard_id}")
@@ -811,7 +825,9 @@ class SupersetAdapter(
                 json={"position_json": json.dumps(position_data)},
             )
         except Exception as exc:
-            logger.debug(f"_remove_chart_from_position({dashboard_id}, {chart_id}) failed: {exc}")
+            logger.debug(
+                f"_remove_chart_from_position({dashboard_id}, {chart_id}) failed: {exc}"
+            )
 
     def add_chart_to_dashboard(
         self, dashboard_id: Union[int, str], chart_id: Union[int, str]
@@ -829,7 +845,9 @@ class SupersetAdapter(
 
             # Idempotent: skip if chart is already in position_data
             if chart_key in position_data:
-                logger.info(f"Chart {chart_id} already in dashboard {dashboard_id} position_data")
+                logger.info(
+                    f"Chart {chart_id} already in dashboard {dashboard_id} position_data"
+                )
                 return True
 
             row_key = f"ROW-{str(uuid.uuid4())[:8]}"
@@ -862,7 +880,11 @@ class SupersetAdapter(
                 "id": chart_key,
                 "children": [],
                 "parents": ["ROOT_ID", "GRID_ID", row_key],
-                "meta": {"chartId": int(chart_id) if str(chart_id).isdigit() else chart_id, "width": 12, "height": 50},
+                "meta": {
+                    "chartId": int(chart_id) if str(chart_id).isdigit() else chart_id,
+                    "width": 12,
+                    "height": 50,
+                },
             }
 
             # Register the row in GRID_ID.children
@@ -883,12 +905,16 @@ class SupersetAdapter(
                 chart_data = self._request_json("GET", f"chart/{chart_id}")
                 chart_result = chart_data.get("result", chart_data)
                 existing_dash_ids = [
-                    d.get("id") for d in chart_result.get("dashboards", []) if d.get("id")
+                    d.get("id")
+                    for d in chart_result.get("dashboards", [])
+                    if d.get("id")
                 ]
                 try:
                     dash_id_int = int(dashboard_id)
                 except (ValueError, TypeError):
-                    logger.warning(f"Cannot convert dashboard_id {dashboard_id} to int for dashboards list")
+                    logger.warning(
+                        f"Cannot convert dashboard_id {dashboard_id} to int for dashboards list"
+                    )
                     return True
                 if dash_id_int not in existing_dash_ids:
                     existing_dash_ids.append(dash_id_int)
@@ -898,7 +924,9 @@ class SupersetAdapter(
                     json={"dashboards": existing_dash_ids},
                 )
             except Exception as exc:
-                logger.warning(f"Failed to sync dashboard_slices for chart {chart_id}: {exc}")
+                logger.warning(
+                    f"Failed to sync dashboard_slices for chart {chart_id}: {exc}"
+                )
 
             return True
         except Exception as exc:
@@ -1018,7 +1046,7 @@ class SupersetAdapter(
         self,
         chart_detail: Dict[str, Any],
         form_data: Dict[str, Any],
-        dataset_info: Dict[str, Any],
+        dataset_info: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         raw_context = chart_detail.get("query_context")
 
@@ -1600,7 +1628,6 @@ class SupersetAdapter(
         if self._try_login_by_browser():
             logger.info("Login by browser succeeded")
             return
-        logger.info("Login by api succeeded")
         payload = {
             "username": self.auth_params.username,
             "password": self.auth_params.password,
@@ -1624,6 +1651,8 @@ class SupersetAdapter(
 
         if not access_token:
             raise SupersetAdapterError("Superset login response missing access_token")
+
+        logger.info("Login by api succeeded")
 
         auth_headers = {"Authorization": f"{token_type} {access_token}".strip()}
         self._auth_header_value = auth_headers

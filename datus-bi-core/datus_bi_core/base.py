@@ -66,7 +66,9 @@ class BIAdapterBase(ABC):
     ) -> Optional[DatasetInfo]: ...
 
     @abstractmethod
-    def list_dashboards(self, search: str = "", page_size: int = 20) -> List[DashboardInfo]: ...
+    def list_dashboards(
+        self, search: str = "", page_size: int = 20
+    ) -> List[DashboardInfo]: ...
 
     def close(self):
         return

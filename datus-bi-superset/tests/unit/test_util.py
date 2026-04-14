@@ -110,7 +110,10 @@ class TestGetColumnLabel:
         assert get_column_label("region") == "region"
 
     def test_dict_with_label(self):
-        assert get_column_label({"label": "Revenue", "sqlExpression": "SUM(x)"}) == "Revenue"
+        assert (
+            get_column_label({"label": "Revenue", "sqlExpression": "SUM(x)"})
+            == "Revenue"
+        )
 
     def test_dict_with_sql_expression_only(self):
         assert get_column_label({"sqlExpression": "YEAR(date)"}) == "YEAR(date)"
@@ -135,7 +138,9 @@ class TestGetMetricLabel:
         assert get_metric_label({"label": "Total Sales"}) == "Total Sales"
 
     def test_dict_with_aggregate_and_column(self):
-        result = get_metric_label({"aggregate": "SUM", "column": {"column_name": "amount"}})
+        result = get_metric_label(
+            {"aggregate": "SUM", "column": {"column_name": "amount"}}
+        )
         assert result == "SUM(amount)"
 
     def test_dict_with_sql_expression(self):
@@ -226,7 +231,13 @@ class TestGetXAxisLabel:
         assert get_x_axis_label({"x_axis": "date"}) == "date"
 
     def test_adhoc_column(self):
-        fd = {"x_axis": {"label": "my_date", "sqlExpression": "YEAR(d)", "expressionType": "SQL"}}
+        fd = {
+            "x_axis": {
+                "label": "my_date",
+                "sqlExpression": "YEAR(d)",
+                "expressionType": "SQL",
+            }
+        }
         # get_x_axis_label calls get_column_label which uses label key
         assert get_x_axis_label(fd) == "my_date"
 
@@ -262,7 +273,13 @@ class TestGetXAxisColumnWithTimeGrain:
         assert result["timeGrain"] == "P1M"
 
     def test_adhoc_column_gets_base_axis(self):
-        fd = {"x_axis": {"sqlExpression": "YEAR(d)", "label": "y", "expressionType": "SQL"}}
+        fd = {
+            "x_axis": {
+                "sqlExpression": "YEAR(d)",
+                "label": "y",
+                "expressionType": "SQL",
+            }
+        }
         result = get_x_axis_column_with_time_grain(fd)
         assert isinstance(result, dict)
         assert result["columnType"] == "BASE_AXIS"
@@ -421,7 +438,11 @@ class TestNormalizeTimeColumn:
         q = QueryObject(columns=["date", "region"])
         result = normalize_time_column({"x_axis": "date"}, q)
         # Find the date column
-        date_col = next(c for c in result.columns if isinstance(c, dict) and c.get("sqlExpression") == "date")
+        date_col = next(
+            c
+            for c in result.columns
+            if isinstance(c, dict) and c.get("sqlExpression") == "date"
+        )
         assert date_col["columnType"] == "BASE_AXIS"
 
     def test_no_x_axis_returns_unchanged(self):
@@ -501,7 +522,9 @@ class TestRollingWindowOperator:
 
     def test_sum_rolling(self):
         q = QueryObject(metrics=["revenue"])
-        result = rolling_window_operator({"rolling_type": "sum", "rolling_periods": 7, "min_periods": 1}, q)
+        result = rolling_window_operator(
+            {"rolling_type": "sum", "rolling_periods": 7, "min_periods": 1}, q
+        )
         assert result["operation"] == "rolling"
         assert result["options"]["rolling_type"] == "sum"
         assert result["options"]["window"] == 7
@@ -523,7 +546,9 @@ class TestRollingWindowOperator:
 class TestResampleOperator:
     def test_with_rule_and_method(self):
         q = QueryObject()
-        result = resample_operator({"resample_rule": "1D", "resample_method": "ffill"}, q)
+        result = resample_operator(
+            {"resample_rule": "1D", "resample_method": "ffill"}, q
+        )
         assert result is not None
         assert result["operation"] == "resample"
         assert result["options"]["rule"] == "1D"
@@ -583,7 +608,11 @@ class TestSortOperator:
 
     def test_sort_by_other_column(self):
         q = QueryObject()
-        form_data = {"x_axis": "date", "x_axis_sort": "revenue", "x_axis_sort_asc": False}
+        form_data = {
+            "x_axis": "date",
+            "x_axis_sort": "revenue",
+            "x_axis_sort_asc": False,
+        }
         result = sort_operator(form_data, q)
         assert result is not None
         assert result["options"]["by"] == "revenue"
@@ -594,7 +623,12 @@ class TestSortOperator:
 
     def test_with_groupby_returns_none(self):
         q = QueryObject()
-        form_data = {"x_axis": "date", "x_axis_sort": "date", "x_axis_sort_asc": True, "groupby": ["region"]}
+        form_data = {
+            "x_axis": "date",
+            "x_axis_sort": "date",
+            "x_axis_sort_asc": True,
+            "groupby": ["region"],
+        }
         assert sort_operator(form_data, q) is None
 
 
@@ -613,7 +647,9 @@ class TestContributionOperator:
 
     def test_with_time_offsets(self):
         q = QueryObject()
-        result = contribution_operator({"contributionMode": "column"}, q, time_offsets=["1 year ago"])
+        result = contribution_operator(
+            {"contributionMode": "column"}, q, time_offsets=["1 year ago"]
+        )
         assert result["options"]["time_shifts"] == ["1 year ago"]
 
     def test_no_mode_returns_none(self):
@@ -780,7 +816,10 @@ class TestExtractQueryFields:
     def test_extracts_groupby_as_columns(self):
         form_data = {"groupby": ["region", "category"]}
         result = extract_query_fields(form_data)
-        assert "region" in result["columns"] or result["columns"] == ["region", "category"]
+        assert "region" in result["columns"] or result["columns"] == [
+            "region",
+            "category",
+        ]
 
     def test_extracts_metrics(self):
         form_data = {"metrics": ["count", "revenue"]}
@@ -793,7 +832,11 @@ class TestExtractQueryFields:
         assert result["metrics"] == []
 
     def test_aggregate_mode_skips_raw_columns(self):
-        form_data = {"query_mode": "aggregate", "groupby": ["region"], "columns": ["id"]}
+        form_data = {
+            "query_mode": "aggregate",
+            "groupby": ["region"],
+            "columns": ["id"],
+        }
         result = extract_query_fields(form_data)
         # "columns" key under aggregate mode is skipped, only groupby used
         assert "region" in result["columns"]
@@ -828,7 +871,9 @@ class TestExtractExtras:
         assert result["time_range"] == "last week"
 
     def test_extra_filters_time_range(self):
-        form_data = {"extra_filters": [{"col": "__time_range", "val": "last month", "op": "=="}]}
+        form_data = {
+            "extra_filters": [{"col": "__time_range", "val": "last month", "op": "=="}]
+        }
         result = extract_extras(form_data)
         assert result["time_range"] == "last month"
         assert "__time_range" in result["applied_time_extras"]
@@ -845,7 +890,9 @@ class TestExtractExtras:
         assert result["extras"]["time_grain_sqla"] == "P1D"
 
     def test_extra_filters_time_col(self):
-        form_data = {"extra_filters": [{"col": "__time_col", "val": "created_at", "op": "=="}]}
+        form_data = {
+            "extra_filters": [{"col": "__time_col", "val": "created_at", "op": "=="}]
+        }
         result = extract_extras(form_data)
         assert result["granularity_sqla"] == "created_at"
 
