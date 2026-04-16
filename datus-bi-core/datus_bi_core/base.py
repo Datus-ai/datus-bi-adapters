@@ -10,6 +10,7 @@ from typing import List, Optional, Union
 from datus_bi_core.models import (
     AuthParam,
     AuthType,
+    ChartDataResult,
     ChartInfo,
     DashboardInfo,
     DatasetInfo,
@@ -56,6 +57,16 @@ class BIAdapterBase(ABC):
     def get_chart(
         self, chart_id: Union[int, str], dashboard_id: Union[int, str, None] = None
     ) -> Optional[ChartInfo]: ...
+
+    def get_chart_data(
+        self,
+        chart_id: Union[int, str],
+        dashboard_id: Union[int, str, None] = None,
+        limit: Optional[int] = None,
+    ) -> Optional[ChartDataResult]:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support get_chart_data"
+        )
 
     @abstractmethod
     def list_datasets(self, dashboard_id: Union[int, str]) -> List[DatasetInfo]: ...

@@ -97,7 +97,7 @@ class TestSupersetCharts:
                 chart_type="big_number",
                 title="[Datus-Test] Total",
                 dataset_id=dataset.id,
-                metrics=["count"],
+                metrics=["SUM(metric)"],
             )
             chart = superset_adapter.create_chart(chart_spec)
             assert chart.id is not None
@@ -112,6 +112,7 @@ class TestSupersetCharts:
                 chart_type="table",
                 title="[Datus-Test] Table",
                 dataset_id=dataset.id,
+                metrics=["SUM(metric)"],
             )
             updated = superset_adapter.update_chart(chart.id, update_spec)
             assert updated.id is not None
@@ -137,6 +138,7 @@ class TestSupersetCharts:
                 chart_type="table",
                 title="[Datus-Test] ListCharts Table",
                 dataset_id=dataset.id,
+                metrics=["SUM(val)"],
             )
             chart = superset_adapter.create_chart(chart_spec)
             superset_adapter.add_chart_to_dashboard(dashboard.id, chart.id)
@@ -180,6 +182,48 @@ class TestSupersetCharts:
         finally:
             superset_adapter.delete_dataset(dataset.id)
 
+    def test_get_chart_data(self, superset_adapter, superset_db_id):
+        """Create a chart, then get_chart_data and verify rows/columns."""
+        dataset_spec = DatasetSpec(
+            name="datus_test_get_chart_data_ds",
+            sql="SELECT 'A' AS category, 10 AS value UNION ALL SELECT 'B', 20",
+            database_id=superset_db_id,
+        )
+        dataset = superset_adapter.create_dataset(dataset_spec)
+        try:
+            chart_spec = ChartSpec(
+                chart_type="table",
+                title="[Datus-Test] ChartData Table",
+                dataset_id=dataset.id,
+                metrics=["value"],
+                dimensions=["category"],
+            )
+            chart = superset_adapter.create_chart(chart_spec)
+            try:
+                result = superset_adapter.get_chart_data(chart.id)
+                assert result is not None
+                assert result.chart_id == chart.id
+                assert isinstance(result.columns, list)
+                assert len(result.columns) > 0
+                assert isinstance(result.rows, list)
+                assert result.row_count == len(result.rows)
+                assert result.row_count > 0
+
+                # Test with limit
+                limited = superset_adapter.get_chart_data(chart.id, limit=1)
+                assert limited is not None
+                assert limited.row_count == 1
+                assert limited.extra.get("truncated") is True
+            finally:
+                superset_adapter.delete_chart(chart.id)
+        finally:
+            superset_adapter.delete_dataset(dataset.id)
+
+    def test_get_chart_data_not_found(self, superset_adapter):
+        """get_chart_data returns None for a non-existent chart."""
+        result = superset_adapter.get_chart_data(999999)
+        assert result is None
+
 
 class TestSupersetDatasets:
     def test_list_datasets_from_dashboard(self, superset_adapter, superset_db_id):
@@ -197,6 +241,7 @@ class TestSupersetDatasets:
                 chart_type="table",
                 title="[Datus-Test] DS Chart",
                 dataset_id=dataset.id,
+                metrics=["SUM(x)"],
             )
             chart = superset_adapter.create_chart(chart_spec)
             superset_adapter.add_chart_to_dashboard(dashboard.id, chart.id)

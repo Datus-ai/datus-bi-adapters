@@ -482,6 +482,300 @@ class TestGetChart:
         assert chart is None
 
 
+class TestGetChartData:
+    """Test chart data retrieval."""
+
+    def test_get_chart_data_success(self, adapter, mock_client):
+        """Test retrieving chart query results via chart/data API."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+
+        data_response = MagicMock()
+        data_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                    "colnames": ["category", "value"],
+                    "data": [
+                        {"category": "A", "value": 10},
+                        {"category": "B", "value": 20},
+                    ],
+                }
+            ]
+        }
+        mock_client.request.side_effect = [detail_response, sql_response, data_response]
+
+        with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+            result = adapter.get_chart_data(1)
+
+        assert result is not None
+        assert result.chart_id == 1
+        assert result.columns == ["category", "value"]
+        assert result.rows == [
+            {"category": "A", "value": 10},
+            {"category": "B", "value": 20},
+        ]
+        assert result.row_count == 2
+        assert "COUNT(*)" in result.sql
+        assert len(result.extra["result_blocks"]) == 1
+
+    def test_get_chart_data_limit_truncates_rows(self, adapter, mock_client):
+        """Test get_chart_data truncates rows when limit is passed."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+
+        data_response = MagicMock()
+        data_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                    "colnames": ["category", "value"],
+                    "data": [
+                        {"category": "A", "value": 10},
+                        {"category": "B", "value": 20},
+                    ],
+                }
+            ]
+        }
+        mock_client.request.side_effect = [detail_response, sql_response, data_response]
+
+        with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+            result = adapter.get_chart_data(1, limit=1)
+
+        assert result is not None
+        assert result.rows == [{"category": "A", "value": 10}]
+        assert result.row_count == 1
+        assert result.extra["truncated"] is True
+        assert result.extra["full_row_count"] == 2
+        assert result.extra["selected_block_index"] == 0
+        assert result.extra["result_blocks"][0]["row_count"] == 2
+        assert "data" not in result.extra["result_blocks"][0]
+
+    def test_get_chart_data_empty_result(self, adapter, mock_client):
+        """Test get_chart_data returns an empty result object when no rows exist."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+
+        data_response = MagicMock()
+        data_response.json.return_value = {"result": []}
+        mock_client.request.side_effect = [detail_response, sql_response, data_response]
+
+        with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+            result = adapter.get_chart_data(1)
+
+        assert result is not None
+        assert result.chart_id == 1
+        assert result.columns == []
+        assert result.rows == []
+        assert result.row_count == 0
+
+    def test_get_chart_data_multiple_blocks_uses_first_data_block(
+        self, adapter, mock_client
+    ):
+        """Test get_chart_data keeps raw blocks but returns the first populated block."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+
+        data_response = MagicMock()
+        data_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                    "colnames": ["category", "value"],
+                    "data": [{"category": "A", "value": 10}],
+                },
+                {
+                    "query": "SELECT region, COUNT(*) AS value FROM orders GROUP BY region",
+                    "colnames": ["region", "value"],
+                    "data": [{"region": "North", "value": 20}],
+                },
+            ]
+        }
+        mock_client.request.side_effect = [detail_response, sql_response, data_response]
+
+        with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+            result = adapter.get_chart_data(1)
+
+        assert result is not None
+        assert result.columns == ["category", "value"]
+        assert result.rows == [{"category": "A", "value": 10}]
+        assert len(result.extra["result_blocks"]) == 2
+
+    def test_get_chart_data_chart_not_found(self, adapter, mock_client):
+        """Test get_chart_data returns None when the chart cannot be fetched."""
+        mock_client.request.side_effect = SupersetAdapterError("Chart not found")
+
+        result = adapter.get_chart_data(999)
+
+        assert result is None
+
+    def test_get_chart_data_error_returns_none(self, adapter, mock_client):
+        """Test get_chart_data returns None when chart/data fails."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+        mock_client.request.side_effect = [
+            detail_response,
+            sql_response,
+            SupersetAdapterError("API error"),
+        ]
+
+        with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+            result = adapter.get_chart_data(1)
+
+        assert result is None
+
+    def test_get_chart_data_non_tabular_payload_raises(self, adapter, mock_client):
+        """Test get_chart_data fails loudly when chart/data is not tabular."""
+        form_data = {"slice_id": 1, "datasource": "10__table", "viz_type": "table"}
+        query_context = {
+            "datasource": {"id": 10, "type": "table"},
+            "queries": [{"columns": ["category"], "metrics": ["count"]}],
+        }
+
+        detail_response = MagicMock()
+        detail_response.json.return_value = {
+            "result": {
+                "id": 1,
+                "slice_name": "Orders by Category",
+                "form_data": json.dumps(form_data),
+                "query_context": json.dumps(query_context),
+            }
+        }
+        sql_response = MagicMock()
+        sql_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                }
+            ]
+        }
+        data_response = MagicMock()
+        data_response.json.return_value = {
+            "result": [
+                {
+                    "query": "SELECT category, COUNT(*) AS value FROM orders GROUP BY category",
+                    "data": {"value": 10},
+                }
+            ]
+        }
+        mock_client.request.side_effect = [detail_response, sql_response, data_response]
+
+        with pytest.raises(SupersetAdapterError) as exc_info:
+            with patch.object(adapter, "_resolve_tables", return_value=["orders"]):
+                adapter.get_chart_data(1)
+
+        assert "non-tabular" in str(exc_info.value)
+
+
 class TestGetDataset:
     """Test dataset retrieval."""
 

@@ -22,6 +22,7 @@ from datus_bi_core import (
 from datus_bi_core.models import (
     AuthParam,
     AuthType,
+    ChartDataResult,
     ChartInfo,
     ChartSpec,
     ColumnInfo,
@@ -60,6 +61,7 @@ def _rison_encode(obj: Any) -> str:
 
 
 logger = logging.getLogger(__name__)
+_TEMPORAL_TYPE_HINTS = ("date", "time", "timestamp", "datetime")
 
 
 def _extract_table_names(
@@ -507,6 +509,65 @@ class SupersetAdapter(
             extra={"raw": chart_detail, "datasource": datasource_ref},
         )
 
+    def get_chart_data(
+        self,
+        chart_id: Union[int, str],
+        dashboard_id: Union[int, str, None] = None,
+        limit: Optional[int] = None,
+    ) -> Optional[ChartDataResult]:
+        chart = self.get_chart(chart_id, dashboard_id=dashboard_id)
+        if chart is None:
+            return None
+
+        query_payload = chart.query.payload if chart.query else {}
+        query_context = query_payload.get("query_context")
+        if not isinstance(query_context, dict):
+            raise SupersetAdapterError(
+                f"No query context available for chart {chart_id}"
+            )
+
+        try:
+            result_blocks = self._fetch_chart_data_blocks(chart.id, query_context)
+        except SupersetAdapterError:
+            # chart/data may 404 when the explore endpoint returned partial
+            # metadata for a non-existent or misconfigured chart.
+            return None
+        selected_block_index, primary_block = self._select_primary_result_block(
+            result_blocks
+        )
+        if primary_block and self._extract_result_rows_payload(primary_block) is None:
+            raise SupersetAdapterError(
+                f"chart/data returned non-tabular payload for {chart_id}"
+            )
+
+        rows = self._extract_rows_from_result_block(primary_block)
+        columns = self._extract_columns_from_result_block(primary_block, rows)
+        sql_text = None
+        if primary_block:
+            sql_text = primary_block.get("query")
+        if not sql_text and chart.query and chart.query.sql:
+            sql_text = chart.query.sql[0]
+
+        full_row_count = len(rows)
+        extra: Dict[str, Any] = {
+            "result_blocks": self._summarize_result_blocks(result_blocks),
+            "selected_block_index": selected_block_index,
+            "truncated": False,
+        }
+        if limit is not None and limit >= 0 and full_row_count > limit:
+            rows = rows[:limit]
+            extra["truncated"] = True
+            extra["full_row_count"] = full_row_count
+
+        return ChartDataResult(
+            chart_id=chart.id,
+            columns=columns,
+            rows=rows,
+            row_count=len(rows),
+            sql=sql_text,
+            extra=extra,
+        )
+
     def get_dataset(
         self, dataset_id: Union[int, str], dashboard_id: Union[int, str, None] = None
     ) -> Optional[DatasetInfo]:
@@ -681,47 +742,378 @@ class SupersetAdapter(
             "optionName": f"metric_{agg.lower()}_{col}",
         }
 
-    def _build_form_data(self, spec: ChartSpec) -> Dict[str, Any]:
+    @staticmethod
+    def _dedupe_names(values: List[str]) -> List[str]:
+        seen: set[str] = set()
+        result: List[str] = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
+        return result
+
+    def _normalize_write_fields(
+        self, spec: ChartSpec
+    ) -> tuple[str, List[Any], List[str], Optional[str]]:
+        viz_type = _CHART_TYPE_MAP.get(spec.chart_type, spec.chart_type)
+        metrics = list(spec.metrics or [])
+        dimensions = self._dedupe_names([str(d).strip() for d in spec.dimensions or []])
+        x_axis = str(spec.x_axis).strip() if spec.x_axis else None
+
+        if viz_type in ("pie", "funnel") and x_axis:
+            dimensions = self._dedupe_names([*dimensions, x_axis])
+            x_axis = None
+
+        if x_axis and x_axis in dimensions:
+            dimensions = [dim for dim in dimensions if dim != x_axis]
+
+        return viz_type, metrics, dimensions, x_axis
+
+    @classmethod
+    def _metric_label(cls, metric: Any) -> str:
+        if isinstance(metric, str):
+            return cls._metric_to_adhoc(metric).get("label", metric.strip())
+        if isinstance(metric, dict):
+            if label := metric.get("label"):
+                return str(label)
+            aggregate = metric.get("aggregate")
+            column = metric.get("column")
+            if aggregate and isinstance(column, dict) and column.get("column_name"):
+                return f"{aggregate}({column['column_name']})"
+            if sql_expression := metric.get("sqlExpression"):
+                return str(sql_expression)
+        return str(metric)
+
+    @staticmethod
+    def _column_name(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        if isinstance(value, dict):
+            for key in ("label", "column_name", "name", "sqlExpression"):
+                if value.get(key):
+                    return str(value[key]).strip() or None
+        return None
+
+    @classmethod
+    def _metric_column_name(cls, metric: Any) -> Optional[str]:
+        if isinstance(metric, str):
+            adhoc = cls._metric_to_adhoc(metric)
+            column = adhoc.get("column")
+            if isinstance(column, dict):
+                return column.get("column_name")
+            return None
+        if isinstance(metric, dict):
+            column = metric.get("column")
+            if isinstance(column, dict):
+                name = column.get("column_name") or column.get("name")
+                if name:
+                    return str(name)
+        return None
+
+    def _dataset_column_index(
+        self, dataset_info: Optional[DatasetInfo]
+    ) -> Dict[str, Dict[str, Any]]:
+        columns: Dict[str, Dict[str, Any]] = {}
+        if not dataset_info:
+            return columns
+
+        for column in dataset_info.columns or []:
+            columns[column.name] = {
+                "data_type": column.data_type,
+                "extra": dict(column.extra or {}),
+            }
+        for dimension in dataset_info.dimensions or []:
+            entry = columns.setdefault(
+                dimension.name,
+                {"data_type": dimension.data_type, "extra": {}},
+            )
+            if dimension.data_type and not entry.get("data_type"):
+                entry["data_type"] = dimension.data_type
+            entry["extra"].update(dimension.extra or {})
+        return columns
+
+    def _is_temporal_column(
+        self, column_name: Optional[str], dataset_info: Optional[DatasetInfo]
+    ) -> bool:
+        if not column_name or not dataset_info:
+            return False
+
+        column_meta = self._dataset_column_index(dataset_info).get(column_name)
+        if not column_meta:
+            return False
+
+        extra = column_meta.get("extra") or {}
+        if extra.get("is_dttm"):
+            return True
+
+        data_type = str(column_meta.get("data_type") or "").lower()
+        return any(hint in data_type for hint in _TEMPORAL_TYPE_HINTS)
+
+    def _resolve_dataset_for_chart_write(
+        self,
+        spec: ChartSpec,
+        chart_id: Optional[Union[int, str]] = None,
+        chart_detail: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Union[int, str], DatasetInfo]:
+        dataset_id = _coerce_id(spec.dataset_id)
+        if dataset_id is None and chart_id is not None:
+            if chart_detail is None:
+                chart_detail = self._get_chart(chart_id)
+            datasource_ref = self._extract_datasource_ref(chart_detail=chart_detail)
+            if datasource_ref:
+                dataset_id = datasource_ref.get("id")
+
+        if dataset_id is None:
+            raise SupersetAdapterError("Superset chart writes require a dataset_id")
+
+        dataset_info = self.get_dataset(dataset_id)
+        if dataset_info is None:
+            raise SupersetAdapterError(f"Dataset {dataset_id} not found")
+        return dataset_id, dataset_info
+
+    def _validate_write_spec(
+        self,
+        viz_type: str,
+        metrics: List[Any],
+        dimensions: List[str],
+        x_axis: Optional[str],
+        dataset_info: DatasetInfo,
+    ) -> None:
+        dataset_columns = self._dataset_column_index(dataset_info)
+        referenced_dimensions = [*dimensions, *([x_axis] if x_axis else [])]
+        if dataset_columns:
+            missing_dimensions = [
+                name
+                for name in referenced_dimensions
+                if name and name not in dataset_columns
+            ]
+            if missing_dimensions:
+                missing_list = ", ".join(sorted(set(missing_dimensions)))
+                raise SupersetAdapterError(
+                    f"Unknown chart field(s) for dataset {dataset_info.id}: {missing_list}"
+                )
+
+            missing_metric_columns = sorted(
+                {
+                    column_name
+                    for metric in metrics
+                    if (column_name := self._metric_column_name(metric))
+                    and column_name not in dataset_columns
+                }
+            )
+            if missing_metric_columns:
+                raise SupersetAdapterError(
+                    "Unknown metric column(s) for dataset "
+                    f"{dataset_info.id}: {', '.join(missing_metric_columns)}"
+                )
+
+        if viz_type in ("big_number_total", "big_number"):
+            if len(metrics) != 1:
+                raise SupersetAdapterError(
+                    "big_number charts require exactly one metric"
+                )
+            if dimensions or x_axis:
+                raise SupersetAdapterError(
+                    "big_number charts do not support x_axis or dimensions"
+                )
+
+        if viz_type in ("pie", "funnel"):
+            if len(metrics) != 1:
+                raise SupersetAdapterError(
+                    f"{viz_type} charts require exactly one metric"
+                )
+            if len(dimensions) != 1:
+                raise SupersetAdapterError(
+                    f"{viz_type} charts require exactly one groupby dimension"
+                )
+
+        if viz_type not in ("big_number_total", "big_number") and not (
+            metrics or dimensions or x_axis
+        ):
+            raise SupersetAdapterError(
+                "Chart configuration must include fields to plot"
+            )
+
+        column_labels = self._dedupe_names(referenced_dimensions)
+        metric_labels = self._dedupe_names(
+            [self._metric_label(metric) for metric in metrics if metric is not None]
+        )
+        duplicate_labels = sorted(set(column_labels).intersection(metric_labels))
+        if duplicate_labels:
+            raise SupersetAdapterError(
+                "Chart configuration has duplicate column/metric labels: "
+                + ", ".join(duplicate_labels)
+            )
+
+    def _build_form_data(
+        self,
+        spec: ChartSpec,
+        dataset_info: Optional[DatasetInfo] = None,
+        dataset_id: Optional[Union[int, str]] = None,
+    ) -> Dict[str, Any]:
+        viz_type, metrics, dimensions, x_axis = self._normalize_write_fields(spec)
         base: Dict[str, Any] = {
-            "viz_type": _CHART_TYPE_MAP.get(spec.chart_type, spec.chart_type),
+            "viz_type": viz_type,
         }
-        if spec.dataset_id:
-            base["datasource"] = f"{spec.dataset_id}__table"
-        if spec.metrics:
+        resolved_dataset_id = _coerce_id(dataset_id) or _coerce_id(spec.dataset_id)
+        if resolved_dataset_id is not None:
+            base["datasource"] = f"{resolved_dataset_id}__table"
+        if metrics:
             # Convert plain column names to SIMPLE adhoc metric expressions so
             # Superset can execute them without pre-defined dataset metrics.
             adhoc_metrics = [
-                self._metric_to_adhoc(m) if isinstance(m, str) else m
-                for m in spec.metrics
+                self._metric_to_adhoc(m) if isinstance(m, str) else m for m in metrics
             ]
-            viz = base["viz_type"]
-            if viz in ("big_number_total", "big_number") and len(adhoc_metrics) == 1:
-                # big_number charts expect singular "metric", not "metrics" array
+            if (
+                viz_type in ("big_number_total", "big_number", "pie", "funnel")
+                and len(adhoc_metrics) == 1
+            ):
+                # Superset charts like big_number, pie, and funnel expect a singular
+                # "metric" control instead of a "metrics" array in form_data.
                 base["metric"] = adhoc_metrics[0]
-                base["y_axis_format"] = "SMART_NUMBER"
+                if viz_type in ("big_number_total", "big_number"):
+                    base["y_axis_format"] = "SMART_NUMBER"
             else:
                 base["metrics"] = adhoc_metrics
-        if spec.dimensions:
-            base["groupby"] = spec.dimensions
-        if spec.x_axis:
-            base["x_axis"] = spec.x_axis
-            base["granularity_sqla"] = spec.x_axis
+        if dimensions:
+            base["groupby"] = dimensions
+        if x_axis:
+            base["x_axis"] = x_axis
+            if self._is_temporal_column(x_axis, dataset_info):
+                base["granularity_sqla"] = x_axis
         if spec.filters:
             base["adhoc_filters"] = spec.filters
         return {**base, **spec.extra}
 
+    def _preflight_form_data(
+        self, form_data: Dict[str, Any], chart_ref: Union[int, str]
+    ) -> None:
+        query_context = build_query_context(form_data=form_data)
+        self._fetch_chart_data_blocks(chart_ref, query_context)
+
+    def _extract_existing_form_data(
+        self, chart_id: Union[int, str]
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        chart_detail = self._get_chart(chart_id)
+        outer_form_data = _load_json_field(chart_detail.get("form_data"))
+        if outer_form_data is None:
+            outer_form_data = _load_json_field(chart_detail.get("params"))
+        if not isinstance(outer_form_data, dict):
+            outer_form_data = {}
+
+        slice_detail = chart_detail.get("slice") or chart_detail
+        slice_form_data = _load_json_field(slice_detail.get("form_data"))
+        if slice_form_data is None:
+            slice_form_data = _load_json_field(slice_detail.get("params"))
+        if not isinstance(slice_form_data, dict):
+            slice_form_data = {}
+
+        form_data = dict(slice_form_data)
+        form_data.update(outer_form_data)
+        return chart_detail, form_data
+
+    def _merge_write_spec_with_existing(
+        self,
+        spec: ChartSpec,
+        dataset_id: Union[int, str],
+        existing_form_data: Optional[Dict[str, Any]] = None,
+    ) -> ChartSpec:
+        existing_form_data = existing_form_data or {}
+        existing_metrics = existing_form_data.get("metrics")
+        if existing_metrics is None and "metric" in existing_form_data:
+            existing_metrics = [existing_form_data.get("metric")]
+        normalized_existing_metrics = None
+        if existing_metrics is not None:
+            normalized_existing_metrics = [
+                self._metric_label(metric)
+                for metric in existing_metrics
+                if metric is not None
+            ]
+        existing_groupby = existing_form_data.get("groupby")
+        normalized_existing_groupby = None
+        if existing_groupby is not None:
+            normalized_existing_groupby = [
+                name for item in existing_groupby if (name := self._column_name(item))
+            ]
+
+        managed_keys = {
+            "datasource",
+            "viz_type",
+            "metric",
+            "metrics",
+            "groupby",
+            "x_axis",
+            "granularity_sqla",
+            "adhoc_filters",
+            "y_axis_format",
+        }
+        existing_extra = {
+            key: value
+            for key, value in existing_form_data.items()
+            if key not in managed_keys
+        }
+
+        return ChartSpec(
+            chart_type=spec.chart_type or existing_form_data.get("viz_type") or "",
+            title=spec.title,
+            description=spec.description,
+            dataset_id=dataset_id,
+            x_axis=spec.x_axis
+            if spec.x_axis is not None
+            else existing_form_data.get("x_axis")
+            or existing_form_data.get("granularity_sqla"),
+            metrics=spec.metrics
+            if spec.metrics is not None
+            else normalized_existing_metrics,
+            dimensions=spec.dimensions
+            if spec.dimensions is not None
+            else normalized_existing_groupby,
+            filters=spec.filters
+            if spec.filters is not None
+            else existing_form_data.get("adhoc_filters"),
+            extra={**existing_extra, **spec.extra},
+        )
+
+    def _prepare_chart_write(
+        self, spec: ChartSpec, chart_id: Optional[Union[int, str]] = None
+    ) -> tuple[Union[int, str], DatasetInfo, Dict[str, Any]]:
+        chart_detail: Optional[Dict[str, Any]] = None
+        existing_form_data: Dict[str, Any] = {}
+        if chart_id is not None:
+            chart_detail, existing_form_data = self._extract_existing_form_data(
+                chart_id
+            )
+
+        dataset_id, dataset_info = self._resolve_dataset_for_chart_write(
+            spec, chart_id=chart_id, chart_detail=chart_detail
+        )
+        effective_spec = self._merge_write_spec_with_existing(
+            spec, dataset_id, existing_form_data
+        )
+        viz_type, metrics, dimensions, x_axis = self._normalize_write_fields(
+            effective_spec
+        )
+        self._validate_write_spec(viz_type, metrics, dimensions, x_axis, dataset_info)
+        form_data = self._build_form_data(
+            effective_spec, dataset_info=dataset_info, dataset_id=dataset_id
+        )
+        self._preflight_form_data(form_data, chart_id or spec.title or dataset_id)
+        return dataset_id, dataset_info, form_data
+
     def create_chart(
         self, spec: ChartSpec, dashboard_id: Optional[Union[int, str]] = None
     ) -> ChartInfo:
-        form_data = self._build_form_data(spec)
+        dataset_id, _dataset_info, form_data = self._prepare_chart_write(spec)
         payload: Dict[str, Any] = {
             "slice_name": spec.title,
             "description": spec.description,
             "viz_type": form_data.get("viz_type", spec.chart_type),
             "params": json.dumps(form_data),
         }
-        if spec.dataset_id:
-            payload["datasource_id"] = spec.dataset_id
+        if dataset_id is not None:
+            payload["datasource_id"] = dataset_id
             payload["datasource_type"] = "table"
         data = self._request_json("POST", "chart", json=payload)
         result = data.get("result", data)
@@ -741,15 +1133,17 @@ class SupersetAdapter(
         )
 
     def update_chart(self, chart_id: Union[int, str], spec: ChartSpec) -> ChartInfo:
-        form_data = self._build_form_data(spec)
+        dataset_id, _dataset_info, form_data = self._prepare_chart_write(
+            spec, chart_id=chart_id
+        )
         payload: Dict[str, Any] = {
             "slice_name": spec.title,
             "params": json.dumps(form_data),
         }
         if spec.description:
             payload["description"] = spec.description
-        if spec.dataset_id:
-            payload["datasource_id"] = spec.dataset_id
+        if dataset_id is not None:
+            payload["datasource_id"] = dataset_id
             payload["datasource_type"] = "table"
         data = self._request_json("PUT", f"chart/{chart_id}", json=payload)
         result = data.get("result", data)
@@ -1158,6 +1552,129 @@ class SupersetAdapter(
                 used_query_indexes.add(idx)
 
         return sqls, (used_query_indexes or None)
+
+    def _fetch_chart_data_blocks(
+        self,
+        chart_id: Union[str, int],
+        query_context: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        payload = dict(query_context)
+        _normalize_series_columns_in_query_context(payload)
+        payload["result_format"] = "json"
+        payload["result_type"] = "full"
+
+        try:
+            response_data = self._request_json("POST", "chart/data", json=payload)
+        except SupersetAdapterError as exc:
+            raise SupersetAdapterError(
+                f"chart/data failed for {chart_id}: {exc}"
+            ) from exc
+
+        results = response_data.get("result", [])
+        if isinstance(results, dict):
+            results = [results]
+        if not isinstance(results, list):
+            raise SupersetAdapterError(
+                f"Unexpected chart/data payload for {chart_id}: {results}"
+            )
+        return [block for block in results if isinstance(block, dict)]
+
+    def _select_primary_result_block(
+        self, result_blocks: List[Dict[str, Any]]
+    ) -> tuple[Optional[int], Optional[Dict[str, Any]]]:
+        for idx, block in enumerate(result_blocks):
+            if self._extract_result_rows_payload(block) is not None:
+                return idx, block
+        return (0, result_blocks[0]) if result_blocks else (None, None)
+
+    def _extract_result_rows_payload(
+        self, block: Optional[Dict[str, Any]]
+    ) -> Optional[List[Any]]:
+        if not isinstance(block, dict):
+            return None
+
+        raw_rows = block.get("data")
+        if isinstance(raw_rows, list):
+            return raw_rows
+        if isinstance(raw_rows, dict):
+            for key in ("records", "result"):
+                nested_rows = raw_rows.get(key)
+                if isinstance(nested_rows, list):
+                    return nested_rows
+        return None
+
+    def _extract_rows_from_result_block(
+        self, block: Optional[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        raw_rows = self._extract_result_rows_payload(block)
+        if raw_rows is None:
+            return []
+        if not raw_rows:
+            return []
+        if all(isinstance(row, dict) for row in raw_rows):
+            return raw_rows
+
+        columns = self._extract_columns_from_result_block(block)
+        normalized_rows: List[Dict[str, Any]] = []
+        for row in raw_rows:
+            if isinstance(row, list):
+                if not columns:
+                    columns = [f"column_{idx}" for idx in range(len(row))]
+                normalized_rows.append(dict(zip(columns, row)))
+        return normalized_rows
+
+    def _extract_columns_from_result_block(
+        self,
+        block: Optional[Dict[str, Any]],
+        rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[str]:
+        if not isinstance(block, dict):
+            return list((rows or [])[0].keys()) if rows else []
+
+        colnames = block.get("colnames")
+        if isinstance(colnames, list):
+            return [str(col) for col in colnames]
+
+        columns = block.get("columns")
+        if isinstance(columns, list):
+            normalized_columns: List[str] = []
+            for column in columns:
+                if isinstance(column, dict):
+                    name = (
+                        column.get("column_name")
+                        or column.get("name")
+                        or column.get("label")
+                    )
+                    if name:
+                        normalized_columns.append(str(name))
+                elif column is not None:
+                    normalized_columns.append(str(column))
+            if normalized_columns:
+                return normalized_columns
+
+        if rows:
+            return list(rows[0].keys()) if rows else []
+        return []
+
+    def _summarize_result_blocks(
+        self, result_blocks: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        summaries: List[Dict[str, Any]] = []
+        for idx, block in enumerate(result_blocks):
+            rows_payload = self._extract_result_rows_payload(block)
+            columns = self._extract_columns_from_result_block(block)
+            summaries.append(
+                {
+                    "index": idx,
+                    "query": block.get("query"),
+                    "columns": columns,
+                    "row_count": len(rows_payload)
+                    if rows_payload is not None
+                    else None,
+                    "data_shape": type(block.get("data")).__name__,
+                }
+            )
+        return summaries
 
     def _append_sql_from_block(self, block: Dict[str, Any], sqls: List[str]) -> None:
         if sql_text := block.get("query"):

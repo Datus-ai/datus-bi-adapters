@@ -1,4 +1,10 @@
-from datus_bi_core.models import AuthType, ChartSpec, DashboardSpec, DatasetSpec
+from datus_bi_core.models import (
+    AuthType,
+    ChartDataResult,
+    ChartSpec,
+    DashboardSpec,
+    DatasetSpec,
+)
 
 
 def test_chart_spec_defaults():
@@ -38,6 +44,38 @@ def test_dashboard_spec():
     assert spec.title == "My Dashboard"
     assert spec.description == "Test"
     assert spec.extra == {}
+
+
+def test_chart_data_result_defaults():
+    result = ChartDataResult(chart_id=42)
+
+    assert result.chart_id == 42
+    assert result.columns == []
+    assert result.rows == []
+    assert result.row_count == 0
+    assert result.sql is None
+    assert result.extra == {}
+
+
+def test_chart_data_result_full():
+    result = ChartDataResult(
+        chart_id="chart-1",
+        columns=["ds", "orders"],
+        rows=[
+            {"ds": "2025-01-01", "orders": 10},
+            {"ds": "2025-01-02", "orders": 12},
+        ],
+        row_count=2,
+        sql="SELECT ds, orders FROM daily_orders",
+        extra={"truncated": False},
+    )
+
+    assert result.chart_id == "chart-1"
+    assert result.columns == ["ds", "orders"]
+    assert result.rows[0]["orders"] == 10
+    assert result.row_count == 2
+    assert "daily_orders" in result.sql
+    assert result.extra["truncated"] is False
 
 
 def test_auth_type():
