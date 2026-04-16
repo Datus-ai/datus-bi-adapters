@@ -12,6 +12,7 @@ from datus_bi_core.mixins import (
 from datus_bi_core.models import (
     AuthParam,
     AuthType,
+    ChartDataResult,
     ChartInfo,
     ChartSpec,
     ColumnInfo,
@@ -35,6 +36,7 @@ __all__ = [
     "DatasetWriteMixin",
     "AuthType",
     "AuthParam",
+    "ChartDataResult",
     "ColumnInfo",
     "MetricDef",
     "DimensionDef",

@@ -2,14 +2,38 @@ from unittest.mock import patch
 
 import pytest
 
-from datus_bi_core.models import AuthParam, ChartSpec, DashboardSpec, DatasetSpec
-from datus_bi_superset.adapter import SupersetAdapter
+from datus_bi_core.models import (
+    AuthParam,
+    ChartSpec,
+    ColumnInfo,
+    DashboardSpec,
+    DatasetInfo,
+    DatasetSpec,
+)
+from datus_bi_superset.adapter import SupersetAdapter, SupersetAdapterError
 
 
 def make_adapter():
     auth = AuthParam(username="admin", password="admin")  # noqa: S106
     return SupersetAdapter(
         api_base_url="http://localhost:8088", auth_params=auth, dialect="postgresql"
+    )
+
+
+def make_dataset_info():
+    return DatasetInfo(
+        id=1,
+        name="test_dataset",
+        columns=[
+            ColumnInfo(name="revenue", data_type="NUMERIC"),
+            ColumnInfo(name="team", data_type="VARCHAR"),
+            ColumnInfo(name="stage", data_type="VARCHAR"),
+            ColumnInfo(name="status", data_type="VARCHAR"),
+            ColumnInfo(
+                name="created_at", data_type="TIMESTAMP", extra={"is_dttm": True}
+            ),
+            ColumnInfo(name="amount", data_type="NUMERIC"),
+        ],
     )
 
 
@@ -39,7 +63,11 @@ class TestSupersetWriteOperations:
     def test_create_chart(self):
         adapter = make_adapter()
         mock_data = {"result": {"id": 5, "slice_name": "My Chart"}}
-        with patch.object(adapter, "_request_json", return_value=mock_data):
+        with (
+            patch.object(adapter, "get_dataset", return_value=make_dataset_info()),
+            patch.object(adapter, "_fetch_chart_data_blocks", return_value=[]),
+            patch.object(adapter, "_request_json", return_value=mock_data),
+        ):
             spec = ChartSpec(
                 chart_type="bar", title="My Chart", dataset_id=1, metrics=["revenue"]
             )
@@ -62,6 +90,54 @@ class TestSupersetWriteOperations:
         assert form_data["metrics"][0]["aggregate"] == "SUM"
         assert form_data["metrics"][0]["column"]["column_name"] == "revenue"
 
+    def test_build_form_data_sets_granularity_only_for_temporal_x_axis(self):
+        adapter = make_adapter()
+        dataset_info = make_dataset_info()
+
+        categorical = adapter._build_form_data(
+            ChartSpec(
+                chart_type="bar",
+                title="By Team",
+                dataset_id=1,
+                metrics=["COUNT(*)"],
+                x_axis="team",
+            ),
+            dataset_info=dataset_info,
+        )
+        assert categorical["x_axis"] == "team"
+        assert "granularity_sqla" not in categorical
+
+        temporal = adapter._build_form_data(
+            ChartSpec(
+                chart_type="line",
+                title="Over Time",
+                dataset_id=1,
+                metrics=["COUNT(*)"],
+                x_axis="created_at",
+            ),
+            dataset_info=dataset_info,
+        )
+        assert temporal["x_axis"] == "created_at"
+        assert temporal["granularity_sqla"] == "created_at"
+
+    def test_build_form_data_funnel_promotes_x_axis_to_groupby(self):
+        adapter = make_adapter()
+        form_data = adapter._build_form_data(
+            ChartSpec(
+                chart_type="funnel",
+                title="Pipeline",
+                dataset_id=1,
+                metrics=["COUNT(*)"],
+                x_axis="stage",
+            ),
+            dataset_info=make_dataset_info(),
+        )
+
+        assert form_data["viz_type"] == "funnel"
+        assert form_data["groupby"] == ["stage"]
+        assert "x_axis" not in form_data
+        assert "granularity_sqla" not in form_data
+
     def test_build_form_data_big_number_uses_singular_metric(self):
         adapter = make_adapter()
         spec = ChartSpec(
@@ -79,12 +155,28 @@ class TestSupersetWriteOperations:
         assert form_data["metric"]["column"]["column_name"] == "revenue"
         assert form_data["y_axis_format"] == "SMART_NUMBER"
 
+    def test_build_form_data_pie_uses_singular_metric(self):
+        adapter = make_adapter()
+        spec = ChartSpec(
+            chart_type="pie",
+            title="Share",
+            dataset_id=1,
+            metrics=["COUNT(*)"],
+            dimensions=["status"],
+        )
+        form_data = adapter._build_form_data(spec, dataset_info=make_dataset_info())
+        assert form_data["viz_type"] == "pie"
+        assert form_data["groupby"] == ["status"]
+        assert "metric" in form_data
+        assert "metrics" not in form_data
+        assert form_data["metric"]["label"] == "COUNT(*)"
+
     @pytest.mark.parametrize(
         "chart_type,expected_viz,uses_singular_metric",
         [
             ("bar", "echarts_timeseries_bar", False),
             ("line", "echarts_timeseries_line", False),
-            ("pie", "pie", False),
+            ("pie", "pie", True),
             ("table", "table", False),
             ("scatter", "echarts_timeseries_scatter", False),
             ("big_number", "big_number_total", True),
@@ -172,14 +264,115 @@ class TestSupersetWriteOperations:
         assert result.id == 42
         assert result.name == "my_ds"
 
+    def test_create_chart_rejects_invalid_big_number_shape(self):
+        adapter = make_adapter()
+        spec = ChartSpec(
+            chart_type="big_number",
+            title="Total",
+            dataset_id=1,
+            metrics=["COUNT(*)"],
+            dimensions=["status"],
+        )
+
+        with (
+            patch.object(adapter, "get_dataset", return_value=make_dataset_info()),
+            patch.object(adapter, "_request_json") as mock_request,
+        ):
+            with pytest.raises(
+                SupersetAdapterError, match="big_number charts do not support"
+            ):
+                adapter.create_chart(spec)
+
+        mock_request.assert_not_called()
+
+    def test_create_chart_preflight_failure_blocks_chart_creation(self):
+        adapter = make_adapter()
+        spec = ChartSpec(
+            chart_type="bar",
+            title="By Team",
+            dataset_id=1,
+            metrics=["COUNT(*)"],
+            x_axis="team",
+        )
+
+        with (
+            patch.object(adapter, "get_dataset", return_value=make_dataset_info()),
+            patch.object(
+                adapter,
+                "_fetch_chart_data_blocks",
+                side_effect=SupersetAdapterError("chart/data failed for preview"),
+            ),
+            patch.object(adapter, "_request_json") as mock_request,
+        ):
+            with pytest.raises(
+                SupersetAdapterError, match="chart/data failed for preview"
+            ):
+                adapter.create_chart(spec)
+
+        mock_request.assert_not_called()
+
     def test_update_chart(self):
         adapter = make_adapter()
-        mock_data = {"result": {"id": 5, "slice_name": "Updated Chart"}}
-        with patch.object(adapter, "_request_json", return_value=mock_data):
+        existing_chart = {
+            "result": {
+                "id": 5,
+                "slice_name": "Updated Chart",
+                "datasource_id": 1,
+                "datasource_type": "table",
+                "params": '{"datasource": "1__table", "viz_type": "echarts_timeseries_line", "metrics": [{"aggregate": "SUM", "column": {"column_name": "amount"}, "expressionType": "SIMPLE", "label": "SUM(amount)"}], "x_axis": "created_at", "granularity_sqla": "created_at"}',
+            }
+        }
+        update_response = {"result": {"id": 5, "slice_name": "Updated Chart"}}
+        with (
+            patch.object(adapter, "get_dataset", return_value=make_dataset_info()),
+            patch.object(adapter, "_fetch_chart_data_blocks", return_value=[]),
+            patch.object(
+                adapter,
+                "_request_json",
+                side_effect=[existing_chart, update_response],
+            ),
+        ):
             spec = ChartSpec(chart_type="line", title="Updated Chart", dataset_id=1)
             result = adapter.update_chart(5, spec)
         assert result.id == 5
         assert result.name == "Updated Chart"
+
+    def test_update_chart_uses_existing_dataset_for_preflight(self):
+        adapter = make_adapter()
+        spec = ChartSpec(
+            chart_type="funnel",
+            title="Updated Funnel",
+            metrics=["COUNT(*)"],
+            x_axis="stage",
+        )
+        existing_chart = {
+            "result": {
+                "id": 5,
+                "slice_name": "Old Funnel",
+                "datasource_id": 1,
+                "datasource_type": "table",
+                "params": '{"datasource": "1__table", "viz_type": "funnel"}',
+            }
+        }
+
+        with (
+            patch.object(adapter, "get_dataset", return_value=make_dataset_info()),
+            patch.object(
+                adapter,
+                "_fetch_chart_data_blocks",
+                side_effect=SupersetAdapterError("preview failed"),
+            ),
+            patch.object(
+                adapter, "_request_json", side_effect=[existing_chart]
+            ) as mock_request,
+        ):
+            with pytest.raises(SupersetAdapterError, match="preview failed"):
+                adapter.update_chart(5, spec)
+
+        assert mock_request.call_count == 1
+        method, endpoint = mock_request.call_args.args[:2]
+        assert method == "GET"
+        assert endpoint == "explore/?slice_id=5"
 
     def test_parse_dashboard_id_from_url(self):
         adapter = make_adapter()

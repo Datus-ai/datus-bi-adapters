@@ -94,6 +94,17 @@ class ChartInfo(BaseModel):
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ChartDataResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    chart_id: Union[int, str]
+    columns: List[str] = Field(default_factory=list)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    row_count: int = 0
+    sql: Optional[str] = None
+    extra: Dict[str, Any] = Field(default_factory=dict)
+
+
 class DashboardInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
