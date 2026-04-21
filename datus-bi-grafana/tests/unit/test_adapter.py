@@ -37,17 +37,23 @@ class TestGrafanaReadOperations:
             },
         }
         with patch.object(adapter, "_request_json", return_value=mock_data):
-            charts = adapter.list_charts("abc123")
-        assert len(charts) == 1
-        assert charts[0].chart_type == "timeseries"
+            page = adapter.list_charts("abc123")
+        # Grafana exposes the full panel list in one call, so total matches
+        # len(items) and pagination is an in-memory slice.
+        assert page.total == 1
+        assert len(page.items) == 1
+        assert page.items[0].chart_type == "timeseries"
 
     def test_list_dashboards(self):
         adapter = make_adapter()
         mock_data = [{"uid": "abc", "title": "My Dashboard"}]
         with patch.object(adapter, "_request_json", return_value=mock_data):
-            results = adapter.list_dashboards(search="My")
-        assert len(results) == 1
-        assert results[0].id == "abc"
+            page = adapter.list_dashboards(search="My")
+        # Grafana /api/search doesn't report a total — total stays None and
+        # the tool layer falls back to ``len(items) < limit`` heuristics.
+        assert page.total is None
+        assert len(page.items) == 1
+        assert page.items[0].id == "abc"
 
 
 class TestGrafanaWriteOperations:
@@ -164,11 +170,12 @@ class TestGrafanaErrorPaths:
             {"id": 2, "name": "MySQL", "type": "mysql", "typeLogoUrl": "url2"},
         ]
         with patch.object(adapter, "_request_json", return_value=mock_data):
-            datasets = adapter.list_datasets(dashboard_id="any")
-        assert len(datasets) == 2
-        assert datasets[0].id == 1
-        assert datasets[0].name == "PostgreSQL"
-        assert datasets[1].id == 2
+            page = adapter.list_datasets(dashboard_id="any")
+        assert page.total == 2
+        assert len(page.items) == 2
+        assert page.items[0].id == 1
+        assert page.items[0].name == "PostgreSQL"
+        assert page.items[1].id == 2
 
     def test_get_dataset(self):
         adapter = make_adapter()

@@ -41,15 +41,18 @@ class TestSupersetWriteOperations:
     def test_list_dashboards(self):
         adapter = make_adapter()
         mock_data = {
+            "count": 1,
             "result": [
                 {"id": 1, "dashboard_title": "Test Dashboard", "description": "A test"}
-            ]
+            ],
         }
         with patch.object(adapter, "_request_json", return_value=mock_data):
-            results = adapter.list_dashboards(search="Test")
-        assert len(results) == 1
-        assert results[0].id == 1
-        assert results[0].name == "Test Dashboard"
+            page = adapter.list_dashboards(search="Test")
+        # Superset reports ``count`` at the top level — total passes through.
+        assert page.total == 1
+        assert len(page.items) == 1
+        assert page.items[0].id == 1
+        assert page.items[0].name == "Test Dashboard"
 
     def test_create_dashboard(self):
         adapter = make_adapter()
@@ -417,8 +420,11 @@ class TestSupersetErrorPaths:
     def test_list_dashboards_failure_returns_empty(self):
         adapter = make_adapter()
         with patch.object(adapter, "_request_json", side_effect=Exception("fail")):
-            results = adapter.list_dashboards()
-        assert results == []
+            page = adapter.list_dashboards()
+        # On error the adapter still returns the envelope shape so callers
+        # don't have to branch on ``None``.
+        assert page.items == []
+        assert page.total is None
 
     def test_list_bi_databases_failure_returns_empty(self):
         adapter = make_adapter()

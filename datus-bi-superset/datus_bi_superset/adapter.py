@@ -32,6 +32,7 @@ from datus_bi_core.models import (
     DatasetSpec,
     DimensionDef,
     MetricDef,
+    PaginatedResult,
     QuerySpec,
 )
 from datus_bi_superset.util import build_query_context, uses_legacy_api
@@ -266,12 +267,17 @@ class SupersetAdapter(
             extra={"raw": dashboard},
         )
 
-    def list_charts(self, dashboard_id: Union[int, str]) -> List[ChartInfo]:
+    def list_charts(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[ChartInfo]:
         try:
             charts = self._get_dashboard_charts(dashboard_id)
         except SupersetAdapterError as exc:
             logger.warning(f"Failed to list charts for dashboard {dashboard_id}: {exc}")
-            return []
+            return PaginatedResult[ChartInfo](items=[], total=None)
 
         results: List[ChartInfo] = []
         for chart_meta in charts:
@@ -293,16 +299,25 @@ class SupersetAdapter(
                     ),
                 )
             )
-        return results
+        # Superset returns the full chart list for a dashboard in one call,
+        # so pagination is an in-memory slice with a known total.
+        total = len(results)
+        window = results[offset : offset + limit]
+        return PaginatedResult[ChartInfo](items=window, total=total)
 
-    def list_datasets(self, dashboard_id: Union[int, str]) -> List[DatasetInfo]:
+    def list_datasets(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DatasetInfo]:
         try:
             charts = self._get_dashboard_charts(dashboard_id)
         except SupersetAdapterError as exc:
             logger.warning(
                 f"Failed to list datasets for dashboard {dashboard_id}: {exc}"
             )
-            return []
+            return PaginatedResult[DatasetInfo](items=[], total=None)
 
         dataset_map: Dict[str, Dict[str, Any]] = {}
         for chart_meta in charts:
@@ -384,7 +399,10 @@ class SupersetAdapter(
                     extra={"datasource": ref},
                 )
             )
-        return datasets
+        # Superset dashboards expose all datasets in one call — paginate in memory.
+        total = len(datasets)
+        window = datasets[offset : offset + limit]
+        return PaginatedResult[DatasetInfo](items=window, total=total)
 
     def get_chart(
         self, chart_id: Union[int, str], dashboard_id: Union[int, str, None] = None
@@ -630,8 +648,11 @@ class SupersetAdapter(
     # =========================================================================
 
     def list_dashboards(
-        self, search: str = "", page_size: int = 20
-    ) -> List[DashboardInfo]:
+        self,
+        search: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DashboardInfo]:
         filters = []
         if search:
             filters.append(
@@ -641,11 +662,19 @@ class SupersetAdapter(
                     "value": search,
                 }
             )
-        params = {"q": _rison_encode({"page_size": page_size, "filters": filters})}
+        # Superset uses page-based pagination; translate offset/limit → page.
+        # Non-aligned offsets (offset % limit != 0) fall back to in-memory
+        # slicing of the page that contains ``offset``.
+        page = offset // limit if limit > 0 else 0
+        intra_page_skip = offset - page * limit if limit > 0 else 0
+        params = {
+            "q": _rison_encode({"page": page, "page_size": limit, "filters": filters})
+        }
         try:
             data = self._request_json("GET", "dashboard", params=params)
             results = data.get("result", [])
-            return [
+            count = data.get("count")
+            dashboards = [
                 DashboardInfo(
                     id=d["id"],
                     name=d.get("dashboard_title", str(d["id"])),
@@ -654,9 +683,15 @@ class SupersetAdapter(
                 )
                 for d in results
             ]
+            if intra_page_skip:
+                dashboards = dashboards[intra_page_skip:]
+            return PaginatedResult[DashboardInfo](
+                items=dashboards,
+                total=int(count) if isinstance(count, int) else None,
+            )
         except Exception as exc:
             logger.warning(f"list_dashboards failed: {exc}")
-            return []
+            return PaginatedResult[DashboardInfo](items=[], total=None)
 
     # =========================================================================
     # DashboardWriteMixin
