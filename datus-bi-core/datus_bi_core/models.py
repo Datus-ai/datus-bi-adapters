@@ -5,9 +5,32 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+T = TypeVar("T")
+
+
+class PaginatedResult(BaseModel, Generic[T]):
+    """Adapter-level envelope for list_* APIs that paginate.
+
+    Keeping pagination metadata next to the rows means the Datus tool layer
+    can translate cleanly into ``FuncToolListResult`` without inventing a
+    second shape at every call site.
+
+    * ``items``: the rows for the requested ``(limit, offset)`` window.
+      Always a list; empty is ``[]``.
+    * ``total``: the upstream full count when the platform exposes it
+      (Superset ``count``). ``None`` when the platform doesn't tell us
+      (Grafana ``/api/search``), so consumers fall back to
+      ``len(items) < limit`` as the "last page" hint.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    items: List[T] = Field(default_factory=list)
+    total: Optional[int] = None
 
 
 class AuthType(Enum):

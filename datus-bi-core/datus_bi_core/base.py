@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from datus_bi_core.models import (
     AuthParam,
@@ -14,6 +14,7 @@ from datus_bi_core.models import (
     ChartInfo,
     DashboardInfo,
     DatasetInfo,
+    PaginatedResult,
 )
 
 
@@ -51,7 +52,12 @@ class BIAdapterBase(ABC):
     ) -> Optional[DashboardInfo]: ...
 
     @abstractmethod
-    def list_charts(self, dashboard_id: Union[int, str]) -> List[ChartInfo]: ...
+    def list_charts(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[ChartInfo]: ...
 
     @abstractmethod
     def get_chart(
@@ -69,7 +75,12 @@ class BIAdapterBase(ABC):
         )
 
     @abstractmethod
-    def list_datasets(self, dashboard_id: Union[int, str]) -> List[DatasetInfo]: ...
+    def list_datasets(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DatasetInfo]: ...
 
     @abstractmethod
     def get_dataset(
@@ -78,8 +89,11 @@ class BIAdapterBase(ABC):
 
     @abstractmethod
     def list_dashboards(
-        self, search: str = "", page_size: int = 20
-    ) -> List[DashboardInfo]: ...
+        self,
+        search: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DashboardInfo]: ...
 
     def close(self):
         return

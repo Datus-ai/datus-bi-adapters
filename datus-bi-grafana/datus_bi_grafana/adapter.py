@@ -3,7 +3,7 @@
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -22,6 +22,7 @@ from datus_bi_core.models import (
     DashboardInfo,
     DashboardSpec,
     DatasetInfo,
+    PaginatedResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,12 +131,17 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             logger.warning(f"get_dashboard_info failed for {dashboard_id}: {exc}")
             return None
 
-    def list_charts(self, dashboard_id: Union[int, str]) -> List[ChartInfo]:
+    def list_charts(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[ChartInfo]:
         try:
             data = self._request_json("GET", f"/api/dashboards/uid/{dashboard_id}")
             dash = data.get("dashboard", {})
             panels = dash.get("panels", [])
-            return [
+            charts = [
                 ChartInfo(
                     id=p["id"],
                     name=p.get("title", str(p["id"])),
@@ -146,9 +152,14 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
                 for p in panels
                 if isinstance(p, dict) and "id" in p
             ]
+            total = len(charts)
+            return PaginatedResult[ChartInfo](
+                items=charts[offset : offset + limit],
+                total=total,
+            )
         except Exception as exc:
             logger.warning(f"list_charts failed for dashboard {dashboard_id}: {exc}")
-            return []
+            return PaginatedResult[ChartInfo](items=[], total=None)
 
     def get_chart(
         self, chart_id: Union[int, str], dashboard_id: Union[int, str, None] = None
@@ -157,16 +168,23 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             raise DatusBiException(
                 "Grafana requires dashboard_id to get a panel", "grafana"
             )
-        charts = self.list_charts(dashboard_id)
+        # Need the full panel list to find by id regardless of pagination
+        # the caller asked for — use a large limit.
+        charts = self.list_charts(dashboard_id, limit=10**6, offset=0).items
         for chart in charts:
             if str(chart.id) == str(chart_id):
                 return chart
         return None
 
-    def list_datasets(self, dashboard_id: Union[int, str]) -> List[DatasetInfo]:
+    def list_datasets(
+        self,
+        dashboard_id: Union[int, str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DatasetInfo]:
         try:
             data = self._request_json("GET", "/api/datasources")
-            return [
+            datasets = [
                 DatasetInfo(
                     id=ds["id"],
                     name=ds.get("name", str(ds["id"])),
@@ -177,9 +195,14 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
                 for ds in data
                 if isinstance(ds, dict)
             ]
+            total = len(datasets)
+            return PaginatedResult[DatasetInfo](
+                items=datasets[offset : offset + limit],
+                total=total,
+            )
         except Exception as exc:
             logger.warning(f"list_datasets failed: {exc}")
-            return []
+            return PaginatedResult[DatasetInfo](items=[], total=None)
 
     def get_dataset(
         self, dataset_id: Union[int, str], dashboard_id: Union[int, str, None] = None
@@ -199,14 +222,26 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
     # --- BIAdapterBase — list_dashboards ---
 
     def list_dashboards(
-        self, search: str = "", page_size: int = 20
-    ) -> List[DashboardInfo]:
-        params: Dict[str, Any] = {"type": "dash-db", "limit": page_size}
+        self,
+        search: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaginatedResult[DashboardInfo]:
+        # Grafana /api/search supports ``page`` (1-based) and ``limit``.
+        # Translate offset → page, then skip any residual rows in memory
+        # for non-aligned offsets.
+        page = (offset // limit) + 1 if limit > 0 else 1
+        intra_page_skip = offset - (page - 1) * limit if limit > 0 else 0
+        params: Dict[str, Any] = {
+            "type": "dash-db",
+            "limit": limit,
+            "page": page,
+        }
         if search:
             params["query"] = search
         try:
             results = self._request_json("GET", "/api/search", params=params)
-            return [
+            dashboards = [
                 DashboardInfo(
                     id=d.get("uid", d.get("id", "")),
                     name=d.get("title", ""),
@@ -215,9 +250,14 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
                 for d in results
                 if isinstance(d, dict)
             ]
+            if intra_page_skip:
+                dashboards = dashboards[intra_page_skip:]
+            # Grafana /api/search does not report a total count — leave ``total``
+            # unset so the tool layer falls back to ``len(items) < limit``.
+            return PaginatedResult[DashboardInfo](items=dashboards, total=None)
         except Exception as exc:
             logger.warning(f"list_dashboards failed: {exc}")
-            return []
+            return PaginatedResult[DashboardInfo](items=[], total=None)
 
     # --- DashboardWriteMixin ---
 

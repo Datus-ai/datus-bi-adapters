@@ -265,15 +265,16 @@ class TestListCharts:
         }
         mock_client.request.return_value = mock_response
 
-        charts = adapter.list_charts(123)
+        page = adapter.list_charts(123)
 
-        assert len(charts) == 2
-        assert charts[0].id == 1
-        assert charts[0].name == "Sales Chart"
-        assert charts[0].chart_type == "bar"
-        assert charts[0].description == "Sales overview"
-        assert charts[1].id == 2
-        assert charts[1].name == "Revenue Chart"
+        assert page.total == 2
+        assert len(page.items) == 2
+        assert page.items[0].id == 1
+        assert page.items[0].name == "Sales Chart"
+        assert page.items[0].chart_type == "bar"
+        assert page.items[0].description == "Sales overview"
+        assert page.items[1].id == 2
+        assert page.items[1].name == "Revenue Chart"
 
     def test_list_charts_with_form_data(self, adapter, mock_client):
         """Test chart listing with form_data containing chart info."""
@@ -292,11 +293,12 @@ class TestListCharts:
         }
         mock_client.request.return_value = mock_response
 
-        charts = adapter.list_charts(123)
+        page = adapter.list_charts(123)
 
-        assert len(charts) == 1
-        assert charts[0].id == 3
-        assert charts[0].chart_type == "pie"
+        assert page.total == 1
+        assert len(page.items) == 1
+        assert page.items[0].id == 3
+        assert page.items[0].chart_type == "pie"
 
     def test_list_charts_empty(self, adapter, mock_client):
         """Test listing charts when none exist."""
@@ -304,18 +306,21 @@ class TestListCharts:
         mock_response.json.return_value = {"result": []}
         mock_client.request.return_value = mock_response
 
-        charts = adapter.list_charts(123)
+        page = adapter.list_charts(123)
 
-        assert len(charts) == 0
+        assert page.items == []
+        assert page.total == 0
 
     def test_list_charts_error(self, adapter, mock_client):
         """Test chart listing with error."""
         mock_client.request.side_effect = SupersetAdapterError("API error")
 
-        charts = adapter.list_charts(123)
+        page = adapter.list_charts(123)
 
-        # Should return empty list on error
-        assert len(charts) == 0
+        # On error the adapter returns the envelope shape with empty items
+        # and ``total=None`` (count is unknown).
+        assert page.items == []
+        assert page.total is None
 
 
 class TestListDatasets:
@@ -357,13 +362,14 @@ class TestListDatasets:
         }
         mock_client.request.return_value = mock_response
 
-        datasets = adapter.list_datasets(123)
+        page = adapter.list_datasets(123)
 
-        assert len(datasets) == 1
-        assert datasets[0].id == 1
+        assert page.total == 1
+        assert len(page.items) == 1
+        assert page.items[0].id == 1
         # Name may be from datasource ref or dataset block
-        assert datasets[0].name in ["sales_table", "1"]
-        assert datasets[0].dialect == "mysql"
+        assert page.items[0].name in ["sales_table", "1"]
+        assert page.items[0].dialect == "mysql"
 
     def test_list_datasets_with_sql(self, adapter, mock_client):
         """Test dataset listing with SQL-based virtual dataset."""
@@ -384,11 +390,12 @@ class TestListDatasets:
         }
         mock_client.request.return_value = mock_response
 
-        datasets = adapter.list_datasets(123)
+        page = adapter.list_datasets(123)
 
-        assert len(datasets) == 1
+        assert page.total == 1
+        assert len(page.items) == 1
         # Should extract tables from SQL
-        assert datasets[0].tables is not None
+        assert page.items[0].tables is not None
 
     def test_list_datasets_empty(self, adapter, mock_client):
         """Test listing datasets when none exist."""
@@ -396,9 +403,10 @@ class TestListDatasets:
         mock_response.json.return_value = {"result": []}
         mock_client.request.return_value = mock_response
 
-        datasets = adapter.list_datasets(123)
+        page = adapter.list_datasets(123)
 
-        assert len(datasets) == 0
+        assert page.items == []
+        assert page.total == 0
 
 
 class TestGetChart:
