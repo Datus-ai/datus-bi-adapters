@@ -39,7 +39,7 @@ services:
       - ./superset_config.py:/app/pythonpath/superset_config.py:ro
     ports:
       - "8088:8088"
-    command: bash -c "uv pip install psycopg2-binary -q && superset db upgrade && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset init && superset load-examples && superset run -p 8088 -h 0.0.0.0 --with-threads"
+    command: bash -c "pip install psycopg2-binary -q && superset db upgrade && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset init && superset load-examples && superset run -p 8088 -h 0.0.0.0 --with-threads"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8088/health || exit 1"]
       interval: 15s
