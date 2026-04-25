@@ -1764,6 +1764,22 @@ class SupersetAdapter(
         ds_type: Optional[str] = None
         name: Optional[str] = None
 
+        # ``/explore/?slice_id=`` (used by ``_get_chart``) returns datasource
+        # info nested under ``form_data`` / ``query_context`` / ``dataset``
+        # rather than as top-level fields. Hoist them into the per-source
+        # branches so the same downstream lookup logic applies.
+        if chart_detail:
+            if form_data is None:
+                form_data = _load_json_field(chart_detail.get("form_data")) or {}
+            if query_context is None:
+                query_context = (
+                    _load_json_field(chart_detail.get("query_context")) or None
+                )
+            dataset_block = chart_detail.get("dataset")
+            if isinstance(dataset_block, dict):
+                ds_id = ds_id or _coerce_id(dataset_block.get("id"))
+                ds_type = ds_type or dataset_block.get("type")
+
         if query_context:
             datasource = query_context.get("datasource")
             if isinstance(datasource, dict):
