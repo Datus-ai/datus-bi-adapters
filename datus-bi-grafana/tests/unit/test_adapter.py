@@ -96,6 +96,66 @@ class TestGrafanaWriteOperations:
         assert result.name == "My Chart"
         assert call_count[0] == 2  # GET then POST
 
+    def test_create_chart_packs_half_width_panel_next_to_existing_panel(self):
+        adapter = make_adapter()
+        posted = {}
+        get_mock = {
+            "dashboard": {
+                "title": "Test",
+                "panels": [
+                    {
+                        "id": 1,
+                        "title": "Existing",
+                        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+                    }
+                ],
+                "schemaVersion": 38,
+                "version": 1,
+            }
+        }
+
+        def mock_request(method, path, **kwargs):
+            if method == "GET":
+                return get_mock
+            posted.update(kwargs["json"]["dashboard"])
+            return {"uid": "abc", "id": 1}
+
+        with patch.object(adapter, "_request_json", side_effect=mock_request):
+            result = adapter.create_chart(
+                ChartSpec(chart_type="bar", title="New Chart"), dashboard_id="abc123"
+            )
+
+        assert result.name == "New Chart"
+        new_panel = posted["panels"][-1]
+        assert new_panel["gridPos"] == {"h": 8, "w": 12, "x": 12, "y": 0}
+
+    def test_create_big_number_uses_compact_kpi_size(self):
+        adapter = make_adapter()
+        posted = {}
+        get_mock = {
+            "dashboard": {
+                "title": "Test",
+                "panels": [],
+                "schemaVersion": 38,
+                "version": 1,
+            }
+        }
+
+        def mock_request(method, path, **kwargs):
+            if method == "GET":
+                return get_mock
+            posted.update(kwargs["json"]["dashboard"])
+            return {"uid": "abc", "id": 1}
+
+        with patch.object(adapter, "_request_json", side_effect=mock_request):
+            adapter.create_chart(
+                ChartSpec(chart_type="big_number", title="Total Revenue"),
+                dashboard_id="abc123",
+            )
+
+        new_panel = posted["panels"][-1]
+        assert new_panel["gridPos"] == {"h": 5, "w": 6, "x": 0, "y": 0}
+
     def test_parse_dashboard_id_from_url(self):
         adapter = make_adapter()
         uid = adapter.parse_dashboard_id("http://grafana:3000/d/abc123/my-dashboard")

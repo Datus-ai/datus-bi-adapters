@@ -1262,6 +1262,7 @@ class SupersetAdapter(
         self, dashboard_id: Union[int, str], chart_id: Union[int, str]
     ) -> bool:
         try:
+            chart_result: Optional[Dict[str, Any]] = None
             data = self._request_json("GET", f"dashboard/{dashboard_id}")
             dash = data.get("result", data)
             position_data = dash.get("position_data") or dash.get("position_json")
@@ -1279,7 +1280,17 @@ class SupersetAdapter(
                 )
                 return True
 
-            row_key = f"ROW-{str(uuid.uuid4())[:8]}"
+            try:
+                chart_data = self._request_json("GET", f"chart/{chart_id}")
+                chart_result = chart_data.get("result", chart_data)
+            except Exception as exc:
+                logger.debug(f"Could not fetch chart {chart_id} for layout: {exc}")
+                chart_result = None
+
+            layout = self._dashboard_chart_layout(chart_result)
+            row_key = self._find_dashboard_row(position_data, layout)
+            if row_key is None:
+                row_key = f"ROW-{str(uuid.uuid4())[:8]}"
 
             # Ensure the required ROOT → GRID skeleton exists
             if "ROOT_ID" not in position_data:
@@ -1296,14 +1307,17 @@ class SupersetAdapter(
                     "parents": ["ROOT_ID"],
                 }
 
-            # Add a new ROW containing the chart
-            position_data[row_key] = {
-                "type": "ROW",
-                "id": row_key,
-                "children": [chart_key],
-                "parents": ["ROOT_ID", "GRID_ID"],
-                "meta": {"background": "BACKGROUND_TRANSPARENT"},
-            }
+            if row_key not in position_data:
+                position_data[row_key] = {
+                    "type": "ROW",
+                    "id": row_key,
+                    "children": [],
+                    "parents": ["ROOT_ID", "GRID_ID"],
+                    "meta": {"background": "BACKGROUND_TRANSPARENT"},
+                }
+            row = position_data[row_key]
+            row.setdefault("children", []).append(chart_key)
+
             position_data[chart_key] = {
                 "type": "CHART",
                 "id": chart_key,
@@ -1311,8 +1325,8 @@ class SupersetAdapter(
                 "parents": ["ROOT_ID", "GRID_ID", row_key],
                 "meta": {
                     "chartId": int(chart_id) if str(chart_id).isdigit() else chart_id,
-                    "width": 12,
-                    "height": 50,
+                    "width": layout["width"],
+                    "height": layout["height"],
                 },
             }
 
@@ -1331,8 +1345,9 @@ class SupersetAdapter(
             # dashboard_slices relationship is properly set (the position_json
             # PUT alone does not sync this table).
             try:
-                chart_data = self._request_json("GET", f"chart/{chart_id}")
-                chart_result = chart_data.get("result", chart_data)
+                if chart_result is None:
+                    chart_data = self._request_json("GET", f"chart/{chart_id}")
+                    chart_result = chart_data.get("result", chart_data)
                 existing_dash_ids = [
                     d.get("id")
                     for d in chart_result.get("dashboards", [])
@@ -1361,6 +1376,69 @@ class SupersetAdapter(
         except Exception as exc:
             logger.warning(f"add_chart_to_dashboard failed: {exc}")
             return False
+
+    def _dashboard_chart_layout(
+        self, chart_result: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        viz_type = ""
+        if isinstance(chart_result, dict):
+            viz_type = str(chart_result.get("viz_type") or "").strip()
+            if not viz_type:
+                params = _load_json_field(
+                    chart_result.get("params")
+                ) or _load_json_field(chart_result.get("form_data"))
+                if isinstance(params, dict):
+                    viz_type = str(params.get("viz_type") or "").strip()
+
+        normalized = viz_type.lower()
+        if normalized in {
+            "big_number",
+            "big_number_total",
+            "big_number_period_over_period",
+        }:
+            return {"width": 3, "height": 18, "group": "kpi"}
+        if normalized in {"pie", "funnel"}:
+            return {"width": 4, "height": 40, "group": "chart"}
+        if normalized in {"table", "pivot_table", "pivot_table_v2"}:
+            return {"width": 12, "height": 60, "group": "detail"}
+        return {"width": 6, "height": 50, "group": "chart"}
+
+    def _find_dashboard_row(
+        self, position_data: Dict[str, Any], layout: Dict[str, Any]
+    ) -> Optional[str]:
+        if layout["width"] >= 12:
+            return None
+
+        grid = position_data.get("GRID_ID") or {}
+        for row_key in reversed(grid.get("children", [])):
+            row = position_data.get(row_key)
+            if not isinstance(row, dict) or row.get("type") != "ROW":
+                continue
+
+            used_width = 0
+            row_group: Optional[str] = None
+            for child_key in row.get("children", []):
+                child = position_data.get(child_key) or {}
+                meta = child.get("meta") or {}
+                child_width = int(meta.get("width") or 12)
+                child_height = int(meta.get("height") or 50)
+                used_width += child_width
+                child_group = (
+                    "kpi"
+                    if child_height <= 24
+                    else "detail"
+                    if child_width >= 12
+                    else "chart"
+                )
+                row_group = row_group or child_group
+                if row_group != child_group:
+                    row_group = "mixed"
+
+            if row_group and row_group != layout["group"]:
+                continue
+            if used_width + layout["width"] <= 12:
+                return row_key
+        return None
 
     # =========================================================================
     # DatasetWriteMixin

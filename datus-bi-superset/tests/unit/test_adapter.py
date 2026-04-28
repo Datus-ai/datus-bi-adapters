@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -527,6 +528,87 @@ class TestAddChartToDashboardIdempotent:
         # Should NOT have called PUT since chart is already present
         for call in mock_req.call_args_list:
             assert call[0][0] != "PUT"
+
+    def test_big_number_charts_pack_into_existing_kpi_row(self):
+        adapter = make_adapter()
+        position_with_kpi = {
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {
+                "type": "GRID",
+                "id": "GRID_ID",
+                "children": ["ROW-kpi"],
+                "parents": ["ROOT_ID"],
+            },
+            "ROW-kpi": {
+                "type": "ROW",
+                "id": "ROW-kpi",
+                "children": ["CHART-5"],
+                "parents": ["ROOT_ID", "GRID_ID"],
+            },
+            "CHART-5": {
+                "type": "CHART",
+                "id": "CHART-5",
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID", "ROW-kpi"],
+                "meta": {"chartId": 5, "width": 3, "height": 18},
+            },
+        }
+        requests = []
+
+        def mock_request(method, path, **kwargs):
+            requests.append((method, path, kwargs))
+            if method == "GET" and path == "dashboard/1":
+                return {"result": {"position_data": json.dumps(position_with_kpi)}}
+            if method == "GET" and path == "chart/6":
+                return {
+                    "result": {
+                        "id": 6,
+                        "viz_type": "big_number_total",
+                        "dashboards": [],
+                    }
+                }
+            return {"result": {}}
+
+        with patch.object(adapter, "_request_json", side_effect=mock_request):
+            result = adapter.add_chart_to_dashboard(1, 6)
+
+        assert result is True
+        dashboard_put = next(
+            req for req in requests if req[0] == "PUT" and req[1] == "dashboard/1"
+        )
+        position = json.loads(dashboard_put[2]["json"]["position_json"])
+        assert position["ROW-kpi"]["children"] == ["CHART-5", "CHART-6"]
+        assert position["CHART-6"]["meta"]["width"] == 3
+        assert position["CHART-6"]["meta"]["height"] == 18
+
+    def test_bar_charts_use_half_width_rows(self):
+        adapter = make_adapter()
+        requests = []
+
+        def mock_request(method, path, **kwargs):
+            requests.append((method, path, kwargs))
+            if method == "GET" and path == "dashboard/1":
+                return {"result": {"position_data": "{}"}}
+            if method == "GET" and path == "chart/7":
+                return {
+                    "result": {
+                        "id": 7,
+                        "viz_type": "echarts_timeseries_bar",
+                        "dashboards": [],
+                    }
+                }
+            return {"result": {}}
+
+        with patch.object(adapter, "_request_json", side_effect=mock_request):
+            result = adapter.add_chart_to_dashboard(1, 7)
+
+        assert result is True
+        dashboard_put = next(
+            req for req in requests if req[0] == "PUT" and req[1] == "dashboard/1"
+        )
+        position = json.loads(dashboard_put[2]["json"]["position_json"])
+        assert position["CHART-7"]["meta"]["width"] == 6
+        assert position["CHART-7"]["meta"]["height"] == 50
 
 
 class TestChartSpecDatasetIdType:
