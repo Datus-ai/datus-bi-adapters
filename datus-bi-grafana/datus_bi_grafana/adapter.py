@@ -3,7 +3,7 @@
 # See http://www.apache.org/licenses/LICENSE-2.0 for details.
 
 import logging
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -391,7 +391,7 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             "type": panel_type,
             "title": spec.title,
             "description": spec.description,
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+            "gridPos": self._default_grid_pos(spec.chart_type),
             "targets": [],
             "options": {},
         }
@@ -417,6 +417,50 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
         panel.update(extra)
         return panel
 
+    def _default_grid_pos(self, chart_type: str) -> Dict[str, int]:
+        normalized = (chart_type or "").strip().lower()
+        if normalized == "big_number":
+            return {"h": 5, "w": 6, "x": 0, "y": 0}
+        if normalized == "pie":
+            return {"h": 8, "w": 8, "x": 0, "y": 0}
+        if normalized == "table":
+            return {"h": 10, "w": 24, "x": 0, "y": 0}
+        return {"h": 8, "w": 12, "x": 0, "y": 0}
+
+    def _next_grid_pos(
+        self, panels: List[Dict[str, Any]], desired: Dict[str, int]
+    ) -> Dict[str, int]:
+        width = max(1, min(24, int(desired.get("w") or 12)))
+        height = max(1, int(desired.get("h") or 8))
+        existing = [
+            {
+                "x": int(grid.get("x") or 0),
+                "y": int(grid.get("y") or 0),
+                "w": int(grid.get("w") or 24),
+                "h": int(grid.get("h") or 1),
+            }
+            for panel in panels
+            if isinstance((grid := panel.get("gridPos")), dict)
+        ]
+        max_bottom = max((grid["y"] + grid["h"] for grid in existing), default=0)
+        for y in range(0, max_bottom + height + 1):
+            for x in range(0, 24 - width + 1):
+                candidate = {"h": height, "w": width, "x": x, "y": y}
+                if not any(
+                    self._grid_overlaps(candidate, occupied) for occupied in existing
+                ):
+                    return candidate
+        return {"h": height, "w": width, "x": 0, "y": max_bottom}
+
+    @staticmethod
+    def _grid_overlaps(left: Dict[str, int], right: Dict[str, int]) -> bool:
+        return not (
+            left["x"] + left["w"] <= right["x"]
+            or right["x"] + right["w"] <= left["x"]
+            or left["y"] + left["h"] <= right["y"]
+            or right["y"] + right["h"] <= left["y"]
+        )
+
     def create_chart(
         self, spec: ChartSpec, dashboard_id: Optional[Union[int, str]] = None
     ) -> ChartInfo:
@@ -434,16 +478,8 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             )
             + 1
         )
-        # Stack below existing panels to avoid overlap
-        max_y = max(
-            (
-                p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0)
-                for p in panels
-            ),
-            default=0,
-        )
         panel = self._build_panel(spec, new_id)
-        panel["gridPos"]["y"] = max_y
+        panel["gridPos"] = self._next_grid_pos(panels, panel["gridPos"])
         panels.append(panel)
         dash["panels"] = panels
         self._request_json(
