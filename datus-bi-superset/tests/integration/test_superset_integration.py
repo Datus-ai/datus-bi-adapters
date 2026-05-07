@@ -15,14 +15,14 @@ _DASHBOARD_TITLE = "[Datus-Test] Integration Dashboard"
 
 
 class TestSupersetDashboards:
-    def test_list_dashboards_returns_list(self, superset_adapter):
+    def test_list_dashboards_returns_paginated_result(self, superset_adapter):
         results = superset_adapter.list_dashboards()
-        assert isinstance(results, list)
+        assert isinstance(results.items, list)
 
     def test_list_dashboards_with_search(self, superset_adapter):
         results = superset_adapter.list_dashboards(search="nonexistent_xyz_abc")
-        assert isinstance(results, list)
-        assert len(results) == 0
+        assert isinstance(results.items, list)
+        assert len(results.items) == 0
 
     def test_create_update_delete_dashboard(self, superset_adapter):
         # Create
@@ -35,7 +35,7 @@ class TestSupersetDashboards:
 
         # Search for it
         found = superset_adapter.list_dashboards(search="Datus-Test")
-        assert any(str(d.id) == str(created.id) for d in found)
+        assert any(str(d.id) == str(created.id) for d in found.items)
 
         # Update
         update_spec = DashboardSpec(title=f"{_DASHBOARD_TITLE} Updated")
@@ -48,7 +48,7 @@ class TestSupersetDashboards:
 
         # Verify gone
         after = superset_adapter.list_dashboards(search="Datus-Test")
-        assert all(str(d.id) != str(created.id) for d in after)
+        assert all(str(d.id) != str(created.id) for d in after.items)
 
     def test_get_dashboard_info(self, superset_adapter):
         # Create a dashboard, get it, then clean up
@@ -64,10 +64,10 @@ class TestSupersetDashboards:
 
 
 class TestSupersetDatabases:
-    def test_list_bi_databases(self, superset_adapter):
+    def test_list_bi_databases(self, superset_adapter, superset_db_id):
         dbs = superset_adapter.list_bi_databases()
         assert isinstance(dbs, list)
-        assert len(dbs) > 0, "Superset should have at least one database configured"
+        assert any(db["id"] == superset_db_id for db in dbs)
         for db in dbs:
             assert "id" in db
             assert "name" in db
@@ -144,9 +144,9 @@ class TestSupersetCharts:
             superset_adapter.add_chart_to_dashboard(dashboard.id, chart.id)
 
             charts = superset_adapter.list_charts(dashboard.id)
-            assert isinstance(charts, list)
-            assert len(charts) >= 1
-            matching = [c for c in charts if str(c.id) == str(chart.id)]
+            assert isinstance(charts.items, list)
+            assert len(charts.items) >= 1
+            matching = [c for c in charts.items if str(c.id) == str(chart.id)]
             assert len(matching) == 1
             assert matching[0].name == "[Datus-Test] ListCharts Table"
 
@@ -247,9 +247,9 @@ class TestSupersetDatasets:
             superset_adapter.add_chart_to_dashboard(dashboard.id, chart.id)
 
             datasets = superset_adapter.list_datasets(dashboard.id)
-            assert isinstance(datasets, list)
-            assert len(datasets) >= 1
-            assert any(str(ds.id) == str(dataset.id) for ds in datasets)
+            assert isinstance(datasets.items, list)
+            assert len(datasets.items) >= 1
+            assert any(str(ds.id) == str(dataset.id) for ds in datasets.items)
 
             superset_adapter.delete_chart(chart.id)
         finally:

@@ -30,11 +30,7 @@ _EXAMPLES_DB_NAME = "datus_test_examples"
 
 
 def _ensure_examples_database(adapter: "SupersetAdapter") -> int:
-    """Return id of the examples database connection.
-
-    After ``superset load-examples`` runs, an 'examples' connection is already
-    registered.  If not found, create one pointing at the Docker postgres service.
-    """
+    """Return id of the deterministic test database connection."""
     dbs = adapter.list_bi_databases()
     if dbs:
         # Prefer a database matching the expected name; fall back to first
@@ -75,5 +71,5 @@ def superset_adapter():
 
 @pytest.fixture(scope="session")
 def superset_db_id(superset_adapter):
-    """Return id of the examples database connection (created by superset load-examples)."""
+    """Return id of the deterministic test database connection."""
     return _ensure_examples_database(superset_adapter)

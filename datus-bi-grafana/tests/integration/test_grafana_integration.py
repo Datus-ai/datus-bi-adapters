@@ -16,14 +16,14 @@ _DASHBOARD_TITLE = "[Datus-Test] Integration Dashboard"
 
 
 class TestGrafanaDashboards:
-    def test_list_dashboards_returns_list(self, grafana_adapter):
+    def test_list_dashboards_returns_paginated_result(self, grafana_adapter):
         results = grafana_adapter.list_dashboards()
-        assert isinstance(results, list)
+        assert isinstance(results.items, list)
 
     def test_list_dashboards_with_search(self, grafana_adapter):
         results = grafana_adapter.list_dashboards(search="nonexistent_xyz_abc")
-        assert isinstance(results, list)
-        assert len(results) == 0
+        assert isinstance(results.items, list)
+        assert len(results.items) == 0
 
     def test_create_update_delete_dashboard(self, grafana_adapter):
         spec = DashboardSpec(
@@ -35,7 +35,7 @@ class TestGrafanaDashboards:
 
         # Search for it
         found = grafana_adapter.list_dashboards(search="Datus-Test")
-        assert any(str(d.id) == str(created.id) for d in found)
+        assert any(str(d.id) == str(created.id) for d in found.items)
 
         # Update
         update_spec = DashboardSpec(title=f"{_DASHBOARD_TITLE} Updated")
@@ -48,7 +48,7 @@ class TestGrafanaDashboards:
 
         # Verify gone
         after = grafana_adapter.list_dashboards(search="Datus-Test")
-        assert all(str(d.id) != str(created.id) for d in after)
+        assert all(str(d.id) != str(created.id) for d in after.items)
 
     def test_get_dashboard_info(self, grafana_adapter):
         spec = DashboardSpec(title=f"{_DASHBOARD_TITLE} GetTest")
@@ -90,7 +90,7 @@ class TestGrafanaCharts:
 
             # Verify panel is in dashboard
             charts = grafana_adapter.list_charts(dashboard.id)
-            assert any(str(c.id) == str(chart.id) for c in charts)
+            assert any(str(c.id) == str(chart.id) for c in charts.items)
 
         finally:
             grafana_adapter.delete_dashboard(dashboard.id)
@@ -109,7 +109,7 @@ class TestGrafanaCharts:
                 created_ids.append(chart.id)
 
             charts = grafana_adapter.list_charts(dashboard.id)
-            assert len(charts) == len(created_ids)
+            assert len(charts.items) == len(created_ids)
         finally:
             grafana_adapter.delete_dashboard(dashboard.id)
 
@@ -167,18 +167,18 @@ class TestGrafanaDatasets:
     def test_list_datasets(self, grafana_adapter):
         # list_datasets returns Grafana datasources
         datasets = grafana_adapter.list_datasets(dashboard_id="")
-        assert isinstance(datasets, list)
+        assert isinstance(datasets.items, list)
         # Grafana should have at least one built-in datasource
-        for ds in datasets:
+        for ds in datasets.items:
             assert ds.id is not None
             assert ds.name is not None
 
     def test_get_dataset(self, grafana_adapter):
         """Get a datasource by id — pick the first from list_datasets."""
         datasets = grafana_adapter.list_datasets(dashboard_id="")
-        if not datasets:
+        if not datasets.items:
             pytest.skip("No datasources configured in Grafana")
-        first = datasets[0]
+        first = datasets.items[0]
         ds = grafana_adapter.get_dataset(first.id)
         assert ds is not None
         assert ds.id == first.id

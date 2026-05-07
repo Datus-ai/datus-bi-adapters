@@ -1,0 +1,78 @@
+name: Adapter CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  merge_group:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: adapter-ci-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run unit tests
+        run: ci/run-unit-tests.sh
+
+  integration-tests:
+    needs:
+      - unit-tests
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch origin "${{ github.event.pull_request.base.ref }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run impacted integration tests
+        if: github.event_name == 'pull_request'
+        run: ci/run-integration-tests.sh --changed "origin/${{ github.event.pull_request.base.ref }}"
+
+      - name: Run full integration tests
+        if: github.event_name != 'pull_request'
+        run: ci/run-integration-tests.sh
+
+      - name: Stop integration services
+        if: always()
+        run: ci/run-integration-tests.sh --cleanup-only
