@@ -174,15 +174,15 @@ list_adapters() {
 export_adapter_env() {
   case "$1" in
     superset)
-      export SUPERSET_PORT="${SUPERSET_PORT:-8088}"
-      export SUPERSET_POSTGRES_PORT="${SUPERSET_POSTGRES_PORT:-5433}"
+      export SUPERSET_PORT="${SUPERSET_PORT:-18088}"
+      export SUPERSET_POSTGRES_PORT="${SUPERSET_POSTGRES_PORT:-15433}"
       export SUPERSET_URL="${SUPERSET_URL:-http://127.0.0.1:${SUPERSET_PORT}}"
       export SUPERSET_USER="${SUPERSET_USER:-admin}"
       export SUPERSET_PASS="${SUPERSET_PASS:-admin}"
       ;;
     grafana)
-      export GRAFANA_PORT="${GRAFANA_PORT:-3000}"
-      export GRAFANA_POSTGRES_PORT="${GRAFANA_POSTGRES_PORT:-5434}"
+      export GRAFANA_PORT="${GRAFANA_PORT:-13000}"
+      export GRAFANA_POSTGRES_PORT="${GRAFANA_POSTGRES_PORT:-15434}"
       export GRAFANA_URL="${GRAFANA_URL:-http://127.0.0.1:${GRAFANA_PORT}}"
       export GRAFANA_USER="${GRAFANA_USER:-admin}"
       export GRAFANA_PASS="${GRAFANA_PASS:-admin123}"
@@ -335,7 +335,9 @@ if [ "$changed_mode" -eq 1 ]; then
     [ -n "$adapter" ] && selected_adapters+=("$adapter")
   done < <(adapters_from_changed_files "$changed_base" | awk '!seen[$0]++')
 else
-  selected_adapters=("${requested_adapters[@]}")
+  if [ "${#requested_adapters[@]}" -gt 0 ]; then
+    selected_adapters=("${requested_adapters[@]}")
+  fi
 fi
 
 if [ "${#selected_adapters[@]}" -eq 0 ] && [ "$changed_mode" -eq 1 ]; then
