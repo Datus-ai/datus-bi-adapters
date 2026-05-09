@@ -4,7 +4,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -109,6 +109,39 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             return resp.json()
         return {}
 
+    def _get_datasource_payload(self, dataset_id: Union[int, str]) -> Dict[str, Any]:
+        identifier = str(dataset_id)
+        encoded_identifier = quote(identifier, safe="")
+        candidate_paths = []
+
+        if isinstance(dataset_id, int) or identifier.isdigit():
+            candidate_paths.append(f"/api/datasources/id/{encoded_identifier}")
+
+        candidate_paths.extend(
+            [
+                f"/api/datasources/uid/{encoded_identifier}",
+                f"/api/datasources/name/{encoded_identifier}",
+                f"/api/datasources/{encoded_identifier}",
+            ]
+        )
+
+        last_error: Optional[Exception] = None
+        seen_paths = set()
+        for path in candidate_paths:
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            try:
+                data = self._request_json("GET", path)
+                if isinstance(data, dict):
+                    return data
+            except Exception as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise last_error
+        raise DatusBiException(f"Datasource {dataset_id} not found", "grafana")
+
     # --- Read operations ---
 
     def get_dashboard_info(
@@ -208,7 +241,7 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
         self, dataset_id: Union[int, str], dashboard_id: Union[int, str, None] = None
     ) -> Optional[DatasetInfo]:
         try:
-            data = self._request_json("GET", f"/api/datasources/{dataset_id}")
+            data = self._get_datasource_payload(dataset_id)
             return DatasetInfo(
                 id=data.get("id", dataset_id),
                 name=data.get("name", str(dataset_id)),
@@ -372,9 +405,7 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
         # Fall back to dataset_id: look up datasource uid by numeric ID
         if not datasource_uid and spec.dataset_id is not None:
             try:
-                ds_data = self._request_json(
-                    "GET", f"/api/datasources/{spec.dataset_id}"
-                )
+                ds_data = self._get_datasource_payload(spec.dataset_id)
                 datasource_uid = ds_data.get("uid")
                 datasource_type = ds_data.get("type", datasource_type)
             except Exception as exc:
