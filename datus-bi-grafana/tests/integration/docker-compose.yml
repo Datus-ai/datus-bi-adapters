@@ -7,7 +7,6 @@
 services:
   postgres:
     image: postgres:15
-    container_name: datus_grafana_postgres
     environment:
       POSTGRES_DB: grafana_data      # business data DB
       POSTGRES_USER: grafana
@@ -15,7 +14,7 @@ services:
       # also create grafana_meta DB for Grafana internal metadata
       POSTGRES_MULTIPLE_DATABASES: grafana_meta
     ports:
-      - "5434:5432"
+      - "${GRAFANA_POSTGRES_PORT:-5434}:5432"
     volumes:
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     healthcheck:
@@ -27,7 +26,6 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: datus_test_grafana
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,7 +41,7 @@ services:
       GF_DATABASE_PASSWORD: grafana
       GF_DATABASE_SSL_MODE: disable
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
       interval: 10s
