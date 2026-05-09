@@ -125,7 +125,7 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
             ]
         )
 
-        last_error: Optional[Exception] = None
+        last_not_found: Optional[Exception] = None
         seen_paths = set()
         for path in candidate_paths:
             if path in seen_paths:
@@ -135,11 +135,14 @@ class GrafanaAdapter(BIAdapterBase, DashboardWriteMixin, ChartWriteMixin):
                 data = self._request_json("GET", path)
                 if isinstance(data, dict):
                     return data
-            except Exception as exc:
-                last_error = exc
+            except DatusBiException as exc:
+                if "returned 404:" in str(exc):
+                    last_not_found = exc
+                    continue
+                raise
 
-        if last_error is not None:
-            raise last_error
+        if last_not_found is not None:
+            raise last_not_found
         raise DatusBiException(f"Datasource {dataset_id} not found", "grafana")
 
     # --- Read operations ---
