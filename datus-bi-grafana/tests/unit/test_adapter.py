@@ -246,6 +246,39 @@ class TestGrafanaErrorPaths:
         assert ds.id == 1
         assert ds.name == "PostgreSQL"
 
+    def test_get_dataset_falls_back_after_404(self):
+        adapter = make_adapter()
+        calls = []
+
+        def mock_request(method, path, **kwargs):
+            calls.append(path)
+            if path == "/api/datasources/id/1":
+                raise DatusBiException(
+                    "Grafana API GET /api/datasources/id/1 returned 404: not found",
+                    "grafana",
+                )
+            return {"id": 1, "name": "PostgreSQL", "type": "postgres"}
+
+        with patch.object(adapter, "_request_json", side_effect=mock_request):
+            ds = adapter.get_dataset(1)
+
+        assert ds is not None
+        assert ds.id == 1
+        assert calls == ["/api/datasources/id/1", "/api/datasources/uid/1"]
+
+    def test_get_datasource_payload_reraises_non_404(self):
+        adapter = make_adapter()
+        error = DatusBiException(
+            "Grafana API GET /api/datasources/id/1 returned 500: unavailable",
+            "grafana",
+        )
+
+        with patch.object(adapter, "_request_json", side_effect=error) as request:
+            with pytest.raises(DatusBiException, match="returned 500"):
+                adapter._get_datasource_payload(1)
+
+        assert request.call_count == 1
+
     def test_get_dataset_failure_returns_none(self):
         adapter = make_adapter()
         with patch.object(adapter, "_request_json", side_effect=Exception("fail")):

@@ -25,7 +25,7 @@ services:
       start_period: 15s
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-12.4.2}
     depends_on:
       postgres:
         condition: service_healthy
