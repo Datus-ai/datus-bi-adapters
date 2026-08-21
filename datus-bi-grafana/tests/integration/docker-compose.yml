@@ -6,7 +6,7 @@
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:16
     environment:
       POSTGRES_DB: grafana_data      # business data DB
       POSTGRES_USER: grafana

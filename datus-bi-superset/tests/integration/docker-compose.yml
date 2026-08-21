@@ -6,7 +6,7 @@
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:16
     environment:
       POSTGRES_DB: superset_examples
       POSTGRES_USER: superset
