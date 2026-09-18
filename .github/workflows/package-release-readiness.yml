@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Workspace package to validate, for example one tool.uv.workspace member"
+        description: "Workspace adapter package to validate"
         required: true
-        type: string
+        type: choice
+        options:
+          - datus-bi-core
+          - datus-bi-superset
+          - datus-bi-grafana
       expected_version:
         description: "Expected package version, for example 0.1.5"
         required: true

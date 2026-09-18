@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Workspace package to release, for example one tool.uv.workspace member"
+        description: "Workspace adapter package to release"
         required: true
-        type: string
+        type: choice
+        options:
+          - datus-bi-core
+          - datus-bi-superset
+          - datus-bi-grafana
       version:
         description: "New canonical package version, for example 0.1.5"
         required: true
@@ -107,7 +111,25 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git checkout -B "${branch}"
-          git add */pyproject.toml
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          root = Path(".")
+          workspace = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+          members = workspace.get("tool", {}).get("uv", {}).get("workspace", {}).get("members", [])
+          pyprojects = []
+          for member in members:
+              pyproject = root / str(member) / "pyproject.toml"
+              if not pyproject.is_file():
+                  raise FileNotFoundError(f"Workspace member is missing pyproject.toml: {member}")
+              pyprojects.append(str(pyproject))
+
+          subprocess.run(["git", "add", "--", *pyprojects], check=True)
+          PY
           git commit -m "chore: prepare ${PACKAGE} ${VERSION} release"
           git push --force-with-lease origin "${branch}"
 
